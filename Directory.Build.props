@@ -1,8 +1,9 @@
 <Project>
   <PropertyGroup>
     <!-- Package version of every plugin in this repo (released together by one v<version> tag).
+         0.8.1: first release from this repo (Fleans.Plugins.RestCaller 0.8.0 was published from fleans).
          Tracks the Fleans engine release the plugins are built against. -->
-    <VersionPrefix>0.8.0</VersionPrefix>
+    <VersionPrefix>0.8.1</VersionPrefix>
     <!-- Fleans plugin-author packages (Fleans.Worker + abstractions) the plugins compile against.
          0.8.0 is the first release with the process instance business id on ExecuteCustomTaskEvent
          (nightBaker/fleans#824), returned to Camunda workers as businessKey. -->
