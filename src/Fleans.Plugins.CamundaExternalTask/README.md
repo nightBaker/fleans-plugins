@@ -11,16 +11,14 @@ For new tasks, use a native [Fleans custom-task plugin](https://nightbaker.githu
 
 ## Minimum consumer usage
 
-In a plugin host (`Fleans:Role=Plugin`) `Program.cs`:
+In a plugin host (`Fleans:Role=Plugin`) `Program.cs`, one line. It reads
+`ConnectionStrings:camunda-external-tasks` and the `CamundaExternalTasks:*` settings, and maps
+`/engine-rest/external-task/*`:
 
 ```csharp
 using Fleans.Plugins.CamundaExternalTask;
 
-builder.Services.AddCamundaExternalTasks(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("camunda-external-tasks")));
-
-var app = builder.Build();
-app.MapCamundaExternalTaskApi();   // → /engine-rest/external-task/*
+builder.AddCamundaExternalTaskPlugin();
 ```
 
 BPMN: replace `camunda:type="external" camunda:topic="charge-card"` with `type="camunda:charge-card"`.
@@ -28,7 +26,7 @@ A `camunda:taskPriority` becomes the input `<zeebe:input source="=10" target="ta
 
 See the [repository README](https://github.com/nightBaker/fleans-plugins/blob/main/docs/camunda-external-task/README.md)
 for the ready-to-run host, configuration, and differences from Camunda 7. For example, incidents
-are opt-in (`AddCamundaExternalTasks(db, o => o.Incidents = true)`); otherwise `retries = 0`
+are opt-in (`CamundaExternalTasks:Incidents = true`); otherwise `retries = 0`
 fails the activity.
 Requires Fleans 0.7.0 or later.
 

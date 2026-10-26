@@ -16,6 +16,9 @@
     <PackageReference Include="Fleans.Worker" Version="$(FleansVersion)" />
     <PackageReference Include="Microsoft.Orleans.Sdk" Version="10.0.1" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.5" />
+    <!-- Providers AddCamundaExternalTaskPlugin picks from CamundaExternalTasks:Provider. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.5" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="all" />
   </ItemGroup>
 
