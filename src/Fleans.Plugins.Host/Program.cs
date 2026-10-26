@@ -1,15 +1,14 @@
 using Fleans.Plugins.CamundaExternalTask;
+using Fleans.Plugins.RestCaller;
 using Fleans.Worker.Hosting;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Orleans.Configuration;
 using StackExchange.Redis;
 using Universley.OrleansContrib.StreamsProvider.Redis;
 
-// Plugin host for Fleans.Plugins.CamundaExternalTask. Joins the Fleans engine's Orleans cluster
-// as a Plugin-role silo (same contract as github.com/nightBaker/fleans-custom-worker-example),
-// so Orleans places the plugin's stream-handler grain only here, and serves the Camunda 7
-// /engine-rest/external-task API for existing external-task workers.
+// The plugin host for every plugin in this repo. Joins the Fleans engine's Orleans cluster as a
+// Plugin-role silo (same contract as github.com/nightBaker/fleans-custom-worker-example), so
+// Orleans places the plugins' stream-handler grains only here.
 //
 // Joins the cluster through the engine's Redis (ConnectionStrings:orleans-redis) with the engine's
 // Orleans__ClusterId / Orleans__ServiceId.
@@ -66,36 +65,12 @@ builder.UseOrleans(silo =>
     silo.AddPersistentStreams(StreamProviderName, RedisStreamFactory.Create, null);
 });
 
-// External-task table: CamundaExternalTasks:Provider = Postgres (default) | Sqlite,
-// connection string "camunda-external-tasks".
-var connectionString = builder.Configuration.GetConnectionString("camunda-external-tasks")
-    ?? throw new InvalidOperationException("ConnectionStrings:camunda-external-tasks is required.");
-var provider = builder.Configuration["CamundaExternalTasks:Provider"] ?? "Postgres";
-builder.Services.AddCamundaExternalTasks(options =>
-{
-    if (provider.Equals("Sqlite", StringComparison.OrdinalIgnoreCase))
-        options.UseSqlite(connectionString);
-    else if (provider.Equals("Postgres", StringComparison.OrdinalIgnoreCase))
-        options.UseNpgsql(connectionString);
-    else
-        throw new InvalidOperationException(
-            $"CamundaExternalTasks:Provider must be 'Postgres' or 'Sqlite' (got '{provider}').");
-}, options => options.Incidents = builder.Configuration.GetValue("CamundaExternalTasks:Incidents", false));
+// Plugins — one line each; each reads its own configuration (see its README).
+builder.Services.AddRestCallerPlugin();
+builder.AddCamundaExternalTaskPlugin();
 
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 app.MapHealthChecks("/health");
-// Anonymous unless CamundaExternalTasks:BasicAuth:Username and :Password are both set.
-// For anything richer, fork and add ASP.NET authentication + .RequireAuthorization().
-var api = app.MapCamundaExternalTaskApi();
-var basicAuthUser = app.Configuration["CamundaExternalTasks:BasicAuth:Username"];
-var basicAuthPassword = app.Configuration["CamundaExternalTasks:BasicAuth:Password"];
-if (!string.IsNullOrEmpty(basicAuthUser) || !string.IsNullOrEmpty(basicAuthPassword))
-{
-    if (string.IsNullOrEmpty(basicAuthUser) || string.IsNullOrEmpty(basicAuthPassword))
-        throw new InvalidOperationException(
-            "Set both CamundaExternalTasks:BasicAuth:Username and CamundaExternalTasks:BasicAuth:Password, or neither.");
-    api.RequireBasicAuthentication(basicAuthUser, basicAuthPassword);
-}
 app.Run();

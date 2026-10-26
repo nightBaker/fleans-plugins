@@ -8,49 +8,19 @@ events (`errorCode="404"`, `errorCode="504"`, …).
 | Path | What |
 |---|---|
 | `src/Fleans.Plugins.RestCaller` | The NuGet package `Fleans.Plugins.RestCaller` (`services.AddRestCallerPlugin()`). |
-| `src/Fleans.RestCaller.Host` | Ready-to-run plugin host (`Fleans:Role=Plugin`) and its container image. |
+| `src/Fleans.Plugins.Host` | The repo's plugin host (`Fleans:Role=Plugin`, every plugin) and its container image. |
 | `tests/Fleans.Plugins.RestCaller.Tests` | Handler tests against an in-process HTTP server. |
 
-The Fleans engine images do not bundle this plugin. Run it either as the ready-made host image
-or inside your own plugin host.
+The Fleans engine images do not bundle this plugin. Run it in this repo's plugin host image or
+add it to your own plugin host with one line.
 
 **Compatibility:** built against `Fleans.Worker` `$(FleansVersion)` from `Directory.Build.props`
 (0.8.0 at the time of writing). Run it against an engine of the same Fleans version or newer.
 
 ## Run the plugin host
 
-Released images are published as `ghcr.io/nightbaker/fleans-rest-caller:<version>`. To build one
-yourself from the repository root:
-
-```bash
-docker build --build-arg HOST=Fleans.RestCaller.Host -t fleans-rest-caller .
-```
-
-The host joins the engine's Orleans cluster through the engine's Redis. With the
-[engine compose bundle](https://nightbaker.github.io/fleans/guides/self-host-docker-compose/),
-start the engine first with `COMPOSE_PROJECT_NAME=fleans` in `.env` (that names the
-`fleans_default` network), then add a `docker-compose.override.yaml` next to the bundle's
-`docker-compose.yaml`:
-
-```yaml
-services:
-  rest-caller:
-    image: ghcr.io/nightbaker/fleans-rest-caller:latest
-    networks: [fleans_default]
-    environment:
-      ConnectionStrings__orleans-redis: "redis:6379,password=${ORLEANS_REDIS_PASSWORD}"
-      Orleans__ClusterId: "fleans"          # must match the engine bundle's CLUSTER_CLUSTER_ID
-      Orleans__ServiceId: "fleans"          # must match CLUSTER_SERVICE_ID
-    depends_on: [redis]
-networks:
-  fleans_default:
-    external: true
-    name: fleans_default
-```
-
-and run `docker compose up -d` again. The plugin appears in the engine's custom-task catalog
-(`GET /custom-tasks`, the *Custom tasks* page and the editor's plugin picker) once the
-host has joined.
+The repo's plugin host image `ghcr.io/nightbaker/fleans-plugins` includes this plugin; see
+[Run the plugin host](../../README.md#run-the-plugin-host). The plugin has no settings of its own.
 
 ## Use it in your own plugin host
 

@@ -26,7 +26,7 @@ Camunda workers ──fetchAndLock / complete / failure / bpmnError──┘ (/e
 | Path | What |
 |---|---|
 | `src/Fleans.Plugins.CamundaExternalTask` | The NuGet package: stream handler grain, table, REST endpoints. |
-| `src/Fleans.CamundaExternalTask.Host` | Ready-to-run plugin host (`Fleans:Role=Plugin`) and its container image (repo-root `Dockerfile`, the default `HOST`). |
+| `src/Fleans.Plugins.Host` | The repo's plugin host (`Fleans:Role=Plugin`, every plugin) and its container image (repo-root `Dockerfile`). |
 | `tests/Fleans.Plugins.CamundaExternalTask.Tests` | REST wire-format tests (SQLite, plus PostgreSQL with `FLEANS_PG_TESTS=1`) and stream-handler tests on an Orleans test cluster. |
 | `docs/camunda-external-task/manual-test-plan/` | End-to-end check with a real Camunda client against a real engine. |
 
@@ -155,62 +155,18 @@ fetch filter does not match them. Drain or complete them first.
 
 ## 2. Run the plugin host
 
-The host joins the engine's Orleans cluster through the engine's Redis and serves the API on port 8080.
-
-Released images are published as `ghcr.io/nightbaker/fleans-camunda-external-task:<version>`.
-To build one yourself from the repository root:
-
-```bash
-docker build -t fleans-camunda-external-task .
-```
-
-With the [engine compose bundle](https://nightbaker.github.io/fleans/guides/self-host-docker-compose/):
-
-Start the engine first. The bundle creates the `fleans_default` network that the plugin host
-joins, and the network only gets that name when the compose project is called `fleans`:
-
-```bash
-cd <unzipped-engine-compose-bundle>
-echo "COMPOSE_PROJECT_NAME=fleans" >> .env   # names the network fleans_default
-docker compose up -d                          # engine first: creates the network
-```
-
-Then add a `docker-compose.override.yaml` next to the bundle's `docker-compose.yaml`:
-
-```yaml
-services:
-  camunda-external-task:
-    image: fleans-camunda-external-task:latest
-    networks: [fleans_default]
-    ports: ["8090:8080"]
-    environment:
-      ConnectionStrings__orleans-redis: "redis:6379,password=${ORLEANS_REDIS_PASSWORD}"
-      Orleans__ClusterId: "fleans"          # must match the engine bundle's CLUSTER_CLUSTER_ID
-      Orleans__ServiceId: "fleans"          # must match CLUSTER_SERVICE_ID
-      ConnectionStrings__camunda-external-tasks: "Host=postgres;Database=camunda_external_tasks;Username=postgres;Password=${POSTGRES_PASSWORD}"
-    depends_on: [redis, postgres]
-networks:
-  fleans_default:
-    external: true
-    name: fleans_default
-```
-
-Then run `docker compose up -d` again from the bundle directory. Compose merges the override and
-starts the plugin host on the existing network. If you skip the engine-first step or the project
-name, it fails with `network fleans_default declared as external, but could not be found`.
+The repo's plugin host image `ghcr.io/nightbaker/fleans-plugins` includes this plugin and serves
+the API on port 8080; [Run the plugin host](../../README.md#run-the-plugin-host) has the compose
+override and the cluster settings. The plugin's own settings:
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `ConnectionStrings__orleans-redis` | *required* | The engine's Redis: clustering, PubSubStore, reminders, streams. |
-| `Orleans__ClusterId`, `Orleans__ServiceId` | *required* | The engine's cluster ids. |
 | `ConnectionStrings__camunda-external-tasks` | *required* | Database for the `camunda_external_tasks` table. The database and table are created at startup. |
 | `CamundaExternalTasks__Provider` | `Postgres` | `Postgres` or `Sqlite`. Use PostgreSQL with more than one replica. |
 | `CamundaExternalTasks__Incidents` | `false` | `true`: a `failure` with `retries = 0` becomes an incident, as in Camunda (see below). `false`: the activity fails with error code `500`. |
 | `CamundaExternalTasks__BasicAuth__Username`, `CamundaExternalTasks__BasicAuth__Password` | *unset* | Set both to require HTTP basic authentication, as Camunda's `ProcessEngineAuthenticationFilter` does. Setting only one fails startup. |
-| `Fleans__Streaming__Redis__TotalQueueCount` | `8` | The same setting the engine reads. Set it to the same value as the engine, or stream events land on queues this host doesn't read. |
 
-Only the Redis stream provider (the engine's default) is supported by this host. Without the
-basic-auth settings the endpoints are anonymous, so put the host behind your gateway. Workers
+Without the basic-auth settings the endpoints are anonymous, so put the host behind your gateway. Workers
 then authenticate the Camunda way:
 
 ```java
@@ -222,17 +178,22 @@ new Client({ baseUrl: url, interceptors: new BasicAuthInterceptor({ username: "d
 ```
 
 Basic auth sends the password in every request, so serve the host over TLS (or behind a TLS
-gateway). For other schemes, fork `Program.cs`: `MapCamundaExternalTaskApi()` returns the route
-group, so you can call `.RequireAuthorization()` on it. An embedding host can call
-`.RequireBasicAuthentication(user, password)` on it instead.
+gateway).
 
-To embed the plugin in your own plugin host instead, add the `Fleans.Plugins.CamundaExternalTask`
-package and register it:
+To add the plugin to your own plugin host, reference the `Fleans.Plugins.CamundaExternalTask`
+package and add one line; it reads the settings above and maps `/engine-rest/external-task/*`:
+
+```csharp
+builder.AddCamundaExternalTaskPlugin();
+```
+
+For other authentication schemes, register the parts yourself instead: `MapCamundaExternalTaskApi()`
+returns the route group, so you can call `.RequireAuthorization()` on it.
 
 ```csharp
 builder.Services.AddCamundaExternalTasks(o => o.UseNpgsql(connectionString));
 var app = builder.Build();
-app.MapCamundaExternalTaskApi();   // → /engine-rest/external-task/*
+app.MapCamundaExternalTaskApi().RequireAuthorization();   // → /engine-rest/external-task/*
 ```
 
 ## 3. Point the workers at the host

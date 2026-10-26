@@ -32,5 +32,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t fleans-camunda-external-task:ci .
-      - run: docker build --build-arg HOST=Fleans.RestCaller.Host -t fleans-rest-caller:ci .
+      - run: docker build -t fleans-plugins:ci .

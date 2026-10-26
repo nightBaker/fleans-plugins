@@ -17,4 +17,4 @@ builder.Services.AddRestCallerPlugin();
 
 The plugin then claims `<serviceTask type="rest-call">` activities at runtime. See the
 [REST Caller guide](https://github.com/nightBaker/fleans-plugins/blob/main/docs/rest-caller/README.md)
-for the ready-to-run host image and the full input/output schema.
+for the ready-to-run host image (`ghcr.io/nightbaker/fleans-plugins`) and the full input/output schema.
