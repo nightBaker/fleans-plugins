@@ -14,7 +14,11 @@ Orleans cluster with `Fleans:Role=Plugin`. The engine itself bundles no plugins.
 
 Released images are published as `ghcr.io/nightbaker/fleans-plugins:<version>`; the host serves
 HTTP (the Camunda `/engine-rest` API, `/health`) on port 8080. It joins the engine's Orleans
-cluster through the engine's Redis. With the
+cluster with the engine's own membership, reminder and stream providers — set the same
+`Fleans__Clustering__Provider`, `Fleans__Reminders__Provider` and `Fleans__Streaming__Provider`
+(and their connection strings) as on the engine silos. The Fleans topology guides show it in a
+[single-PostgreSQL install](https://nightbaker.github.io/fleans/guides/topology-single-postgres/)
+and in the [scalable install](https://nightbaker.github.io/fleans/guides/topology-scalable/). With the
 [engine compose bundle](https://nightbaker.github.io/fleans/guides/self-host-docker-compose/),
 start the engine first with `COMPOSE_PROJECT_NAME=fleans` in `.env` (that names the
 `fleans_default` network), then add a `docker-compose.override.yaml` next to the bundle's
@@ -45,13 +49,20 @@ editor's plugin picker) once the host has joined.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `ConnectionStrings__orleans-redis` | *required* | The engine's Redis: clustering, PubSubStore, reminders, streams. |
 | `Orleans__ClusterId`, `Orleans__ServiceId` | *required* | The engine's cluster ids. |
+| `Fleans__Clustering__Provider` | `Redis` | `Redis` or `Postgres` — the engine's membership table. |
+| `Fleans__Reminders__Provider` | `Redis` | `Redis` or `Postgres` — every silo serves a slice of the engine's reminders (BPMN timers). |
+| `Fleans__Streaming__Provider` | `Redis` | `Redis`, `Kafka` or `Memory` — must be the engine's provider. |
+| `ConnectionStrings__orleans-redis` | — | The engine's Redis; required while any provider above is `Redis`. |
+| `ConnectionStrings__fleans` | — | The engine's PostgreSQL database; used by `Postgres` membership and reminders unless the next two are set. |
+| `ConnectionStrings__fleans-cluster`, `ConnectionStrings__fleans-reminders` | — | The engine's dedicated membership / reminder databases, when it uses them. |
+| `Fleans__Streaming__Kafka__*` | — | The engine's Kafka settings (`Brokers`, `QueueCount`, `TopicPrefix`, …), set to the same values. |
 | `Fleans__Streaming__Redis__TotalQueueCount` | `8` | The same setting the engine reads. Set it to the same value as the engine, or stream events land on queues this host doesn't read. |
 
-Only the Redis stream provider (the engine's default) is supported. Each plugin's own settings
-are in its guide; the Camunda plugin's database connection string is required, so the host
-needs it even if you only use the REST Caller.
+Like the engine, the host subscribes to streams through implicit subscriptions only, so it needs
+no `PubSubStore`. Each plugin's own settings are in its guide; the Camunda plugin's database
+connection string is required, so the host needs it even if you only use the REST Caller (its
+database is created at startup and can live on the engine's PostgreSQL server).
 
 To write your own plugin, see
 [Writing custom tasks](https://nightbaker.github.io/fleans/guides/writing-custom-tasks/) and the

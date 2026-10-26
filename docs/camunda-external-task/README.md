@@ -30,7 +30,7 @@ Camunda workers ──fetchAndLock / complete / failure / bpmnError──┘ (/e
 | `tests/Fleans.Plugins.CamundaExternalTask.Tests` | REST wire-format tests (SQLite, plus PostgreSQL with `FLEANS_PG_TESTS=1`) and stream-handler tests on an Orleans test cluster. |
 | `docs/camunda-external-task/manual-test-plan/` | End-to-end check with a real Camunda client against a real engine. |
 
-**Compatibility:** requires **Fleans 0.8.0 or later** (the process instance business id on `ExecuteCustomTaskEvent`, returned as `businessKey`). Run it against an engine built from the same Fleans version or newer.
+**Compatibility:** plugin 0.9.0 requires **Fleans 0.9.0 or later** (built on `Fleans.Worker` 0.9.0 and Orleans 10.4; 0.8.0 added the process instance business id on `ExecuteCustomTaskEvent`, returned as `businessKey`). Run it against an engine built from the same Fleans version or newer.
 `FleansVersion` in `Directory.Build.props` pins the `Fleans.Worker` package the plugin compiles against.
 
 ## 1. Adapt the BPMN
