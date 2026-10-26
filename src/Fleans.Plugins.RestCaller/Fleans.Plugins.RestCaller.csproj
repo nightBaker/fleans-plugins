@@ -10,7 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="Fleans.Worker" Version="$(FleansVersion)" />
-    <PackageReference Include="Microsoft.Orleans.Sdk" Version="10.0.1" />
+    <PackageReference Include="Microsoft.Orleans.Sdk" Version="10.4.0" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="all" />

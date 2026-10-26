@@ -15,7 +15,7 @@ The Fleans engine images do not bundle this plugin. Run it in this repo's plugin
 add it to your own plugin host with one line.
 
 **Compatibility:** built against `Fleans.Worker` `$(FleansVersion)` from `Directory.Build.props`
-(0.8.0 at the time of writing). Run it against an engine of the same Fleans version or newer.
+(0.9.0 at the time of writing). Run it against an engine of the same Fleans version or newer.
 
 ## Run the plugin host
 
