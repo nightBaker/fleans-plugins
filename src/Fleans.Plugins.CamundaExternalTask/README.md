@@ -26,7 +26,7 @@ app.MapCamundaExternalTaskApi();   // → /engine-rest/external-task/*
 BPMN: replace `camunda:type="external" camunda:topic="charge-card"` with `type="camunda:charge-card"`.
 A `camunda:taskPriority` becomes the input `<zeebe:input source="=10" target="taskPriority"/>`.
 
-See the [repository README](https://github.com/nightBaker/fleans-camunda-external-task#readme)
+See the [repository README](https://github.com/nightBaker/fleans-plugins/blob/main/docs/camunda-external-task/README.md)
 for the ready-to-run host, configuration, and differences from Camunda 7. For example, incidents
 are opt-in (`AddCamundaExternalTasks(db, o => o.Incidents = true)`); otherwise `retries = 0`
 fails the activity.

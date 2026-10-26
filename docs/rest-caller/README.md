@@ -1,0 +1,129 @@
+# Fleans REST Caller
+
+Backs `<serviceTask type="rest-call">` with an outbound HTTP request. The handler puts the
+response into `__response` (`status`, `statusCode`, `ok`, `body`, `headers`) and fails the
+activity with an HTTP-shaped error code on non-success, so workflows route with boundary error
+events (`errorCode="404"`, `errorCode="504"`, …).
+
+| Path | What |
+|---|---|
+| `src/Fleans.Plugins.RestCaller` | The NuGet package `Fleans.Plugins.RestCaller` (`services.AddRestCallerPlugin()`). |
+| `src/Fleans.RestCaller.Host` | Ready-to-run plugin host (`Fleans:Role=Plugin`) and its container image. |
+| `tests/Fleans.Plugins.RestCaller.Tests` | Handler tests against an in-process HTTP server. |
+
+The Fleans engine images do not bundle this plugin. Run it either as the ready-made host image
+or inside your own plugin host.
+
+**Compatibility:** built against `Fleans.Worker` `$(FleansVersion)` from `Directory.Build.props`
+(0.8.0 at the time of writing). Run it against an engine of the same Fleans version or newer.
+
+## Run the plugin host
+
+Released images are published as `ghcr.io/nightbaker/fleans-rest-caller:<version>`. To build one
+yourself from the repository root:
+
+```bash
+docker build --build-arg HOST=Fleans.RestCaller.Host -t fleans-rest-caller .
+```
+
+The host joins the engine's Orleans cluster through the engine's Redis. With the
+[engine compose bundle](https://nightbaker.github.io/fleans/guides/self-host-docker-compose/),
+start the engine first with `COMPOSE_PROJECT_NAME=fleans` in `.env` (that names the
+`fleans_default` network), then add a `docker-compose.override.yaml` next to the bundle's
+`docker-compose.yaml`:
+
+```yaml
+services:
+  rest-caller:
+    image: ghcr.io/nightbaker/fleans-rest-caller:latest
+    networks: [fleans_default]
+    environment:
+      ConnectionStrings__orleans-redis: "redis:6379,password=${ORLEANS_REDIS_PASSWORD}"
+      Orleans__ClusterId: "fleans"          # must match the engine bundle's CLUSTER_CLUSTER_ID
+      Orleans__ServiceId: "fleans"          # must match CLUSTER_SERVICE_ID
+    depends_on: [redis]
+networks:
+  fleans_default:
+    external: true
+    name: fleans_default
+```
+
+and run `docker compose up -d` again. The plugin appears in the engine's custom-task catalog
+(`GET /custom-tasks`, the *Custom tasks* page and the editor's plugin picker) once the
+host has joined.
+
+## Use it in your own plugin host
+
+```csharp
+using Fleans.Plugins.RestCaller;
+
+builder.Services.AddRestCallerPlugin();
+```
+
+See [Writing custom tasks](https://nightbaker.github.io/fleans/guides/writing-custom-tasks/) for
+the host contract, or start from
+[fleans-custom-worker-example](https://github.com/nightBaker/fleans-custom-worker-example).
+
+## Parameters
+
+| Name | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `url` | `String` | yes | — | Absolute URI |
+| `method` | `String` | yes | `GET` | One of GET / POST / PUT / PATCH / DELETE / HEAD / OPTIONS |
+| `headers` | `Map<String>` | no | `null` | Each `(name, value)` pair sent as a header. Names must be RFC 7230 tokens (letters, digits, and ``!#$%&'*+-.^_`|~``); names and values must not contain CR or LF — otherwise the activity fails with `code="400"` before any request is sent. **v1 only sources from a workflow variable** (e.g. `<fleans:input source="=requestHeaders" target="headers" />`). |
+| `body` | `MultilineString` | no | `null` | Sent verbatim. If non-empty and no `Content-Type` header is supplied, defaults to `application/json` |
+| `successCodes` | `List<Integer>` | no | `null` | When null/empty, defaults to `200..299`. Pass an explicit list (e.g. `[200, 201, 404]`) when you want non-2xx codes treated as success. **v1 only sources from a workflow variable.** |
+| `timeoutSec` | `Integer` | yes | `30` | Whole seconds; clamped to `[1, 300]`. Timeout fails the activity with `code="504"` |
+| `idempotencyKeyHeader` | `String` | no | `null` | When set, plugin sends `<header>: <activityInstanceId-guid>` so server-side dedupe is keyed on the activity instance id (mitigates retries under silo failure) |
+| `maxResponseBytes` | `Integer` | no | `null` | Per-task cap on the buffered response body. Null or empty uses the silo ceiling (8 MiB by default). Can only **lower** the ceiling — a larger value is clamped to it. Must be ≥ 1. A success response whose body is over the cap fails the activity with `code="502"`; a non-success response keeps its own status code |
+
+## Failure semantics
+
+| Outcome | `ErrorState.Code` | Message |
+|---|---|---|
+| HTTP status outside `successCodes` | `<status>` (e.g. `"404"`) | response body, truncated to 1024 chars (`"(response body … exceeds limit of N bytes)"` if the body is over the cap) |
+| Network error (`HttpRequestException` / `IOException`, including a connection drop while the body downloads) | `"502"` | `ex.Message` |
+| Success response with a body larger than `maxResponseBytes` (or the 8 MiB silo ceiling) | `"502"` | `"response body … exceeds limit of N bytes"` |
+| Timeout (per `timeoutSec`, covering the body download too) | `"504"` | `"timeout after Ns calling <uri>"` |
+| Bad URL / unsupported method / `timeoutSec` out of `[1, 300]` / `maxResponseBytes` < 1 / invalid header (CR or LF, non-token name, unparseable `Content-Type`) | `"400"` | descriptive message |
+
+Workflow authors route via boundary error events with `errorCode="404"`, `errorCode="504"`, etc.
+
+Response bodies are buffered in memory and capped at **8 MiB** (`RestCallerServiceCollectionExtensions.DefaultMaxResponseContentBufferSize`) so a hostile or misbehaving upstream can't exhaust the silo heap. A declared `Content-Length` over the cap fails before the body is read; chunked responses fail as soon as the cap is crossed. `HEAD`, `204`, `205` and `304` responses carry no body and are never capped, even when they declare a `Content-Length`. Individual tasks can tighten the cap with `maxResponseBytes`, but only the host can raise the ceiling: a host that legitimately needs larger payloads can raise it by configuring the typed client **after** registering the plugin (client configuration runs in registration order, so a call placed before `AddRestCallerPlugin()` is overwritten):
+
+```csharp
+services.AddRestCallerPlugin();
+services.AddHttpClient<RestCallerHandler>(c => c.MaxResponseContentBufferSize = 64L * 1024 * 1024);
+```
+
+## Worked example
+
+```xml
+<!-- Requires xmlns:fleans="https://fleans.io/schema/bpmn/1.0" on <bpmn:definitions> -->
+<bpmn:serviceTask id="getUser" type="rest-call">
+  <bpmn:extensionElements>
+    <fleans:ioMapping>
+      <fleans:input  source="=userApiUrl"        target="url" />
+      <fleans:input  source="GET"                target="method" />
+      <fleans:input  source="=requestHeaders"    target="headers" />
+      <fleans:input  source="10"                 target="timeoutSec" />
+      <fleans:output source="=__response.body"   target="user" />
+      <fleans:output source="=__response.statusCode" target="status" />
+    </fleans:ioMapping>
+  </bpmn:extensionElements>
+</bpmn:serviceTask>
+```
+
+Start the workflow with the variables that populate the inputs:
+
+```json
+{
+  "WorkflowId": "fetch-user",
+  "Variables": {
+    "userApiUrl": "https://api.example.com/users/42",
+    "requestHeaders": { "Authorization": "Bearer abc", "Accept": "application/json" }
+  }
+}
+```
+
+The activity completes with `user` (the parsed JSON body) and `status` (the integer status code) merged into the workflow scope. Author can route subsequent gateways on `status`.

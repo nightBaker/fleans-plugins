@@ -14,7 +14,7 @@ Automated coverage (not repeated here): `tests/Fleans.Plugins.CamundaExternalTas
 - A checkout of [nightBaker/fleans](https://github.com/nightBaker/fleans) at the release this repo targets (`FleansVersion` in `Directory.Build.props`), plus Docker and Node 18+.
 - From fleans' `src/Fleans/`, start the engine with this repo's host attached:
   ```bash
-  FLEANS_PLUGIN_HOST_PROJECT=/abs/path/fleans-camunda-external-task/src/Fleans.CamundaExternalTask.Host/Fleans.CamundaExternalTask.Host.csproj \
+  FLEANS_PLUGIN_HOST_PROJECT=/abs/path/fleans-plugins/src/Fleans.CamundaExternalTask.Host/Fleans.CamundaExternalTask.Host.csproj \
     dotnet run --project Fleans.Aspire
   ```
   The host runs with `appsettings.Development.json` (a SQLite file) and listens on `http://localhost:5180`.

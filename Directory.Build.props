@@ -1,10 +1,11 @@
 <Project>
   <PropertyGroup>
-    <!-- Package version of this plugin. Tracks the Fleans engine release it is built against. -->
+    <!-- Package version of every plugin in this repo (released together by one v<version> tag).
+         Tracks the Fleans engine release the plugins are built against. -->
     <VersionPrefix>0.8.0</VersionPrefix>
-    <!-- Fleans plugin-author packages (Fleans.Worker + abstractions) this plugin compiles against.
+    <!-- Fleans plugin-author packages (Fleans.Worker + abstractions) the plugins compile against.
          0.8.0 is the first release with the process instance business id on ExecuteCustomTaskEvent
-         (nightBaker/fleans#824), returned to workers as businessKey. -->
+         (nightBaker/fleans#824), returned to Camunda workers as businessKey. -->
     <FleansVersion>0.8.0</FleansVersion>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -12,7 +13,7 @@
     <LangVersion>14</LangVersion>
     <Authors>nightBaker</Authors>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
-    <RepositoryUrl>https://github.com/nightBaker/fleans-camunda-external-task</RepositoryUrl>
-    <PackageProjectUrl>https://github.com/nightBaker/fleans-camunda-external-task</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/nightBaker/fleans-plugins</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/nightBaker/fleans-plugins</PackageProjectUrl>
   </PropertyGroup>
 </Project>

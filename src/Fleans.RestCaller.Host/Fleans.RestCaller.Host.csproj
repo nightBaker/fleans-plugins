@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- Ready-to-run plugin host: an Orleans silo with Fleans:Role=Plugin that joins the Fleans
+       cluster and claims every <serviceTask type="rest-call">. Dependency closure: Fleans.Worker
+       (via the plugin) + Orleans server packages — no engine projects. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <ContainerRepository>fleans-rest-caller</ContainerRepository>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Fleans.Plugins.RestCaller\Fleans.Plugins.RestCaller.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.StackExchange.Redis" Version="13.1.1" />
+    <PackageReference Include="Microsoft.Orleans.Server" Version="10.0.1" />
+    <PackageReference Include="Microsoft.Orleans.Clustering.Redis" Version="10.0.1" />
+    <PackageReference Include="Microsoft.Orleans.Persistence.Redis" Version="10.0.1" />
+    <PackageReference Include="Microsoft.Orleans.Reminders.Redis" Version="10.0.1" />
+    <PackageReference Include="Microsoft.Orleans.Streaming" Version="10.0.1" />
+    <PackageReference Include="Universley.OrleansContrib.StreamsProvider.Redis" Version="2026.4.19" />
+  </ItemGroup>
+
+</Project>

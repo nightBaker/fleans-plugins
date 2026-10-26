@@ -7,7 +7,7 @@ mapping.
 
 ## Minimum consumer usage
 
-In your worker silo's `Program.cs`:
+In your plugin host's `Program.cs`:
 
 ```csharp
 using Fleans.Plugins.RestCaller;
@@ -16,9 +16,5 @@ builder.Services.AddRestCallerPlugin();
 ```
 
 The plugin then claims `<serviceTask type="rest-call">` activities at runtime. See the
-[Custom Tasks documentation](https://nightbaker.github.io/fleans/concepts/custom-tasks/)
-for the full input/output schema.
-
-> Plugin packages share the engine's `<VersionPrefix>` track — every Fleans release bumps
-> every plugin's NuGet version even when the plugin source is bit-identical (same precedent
-> as `Aspire.Hosting.*` / `Microsoft.Orleans.*`).
+[REST Caller guide](https://github.com/nightBaker/fleans-plugins/blob/main/docs/rest-caller/README.md)
+for the ready-to-run host image and the full input/output schema.

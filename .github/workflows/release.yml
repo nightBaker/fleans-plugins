@@ -1,11 +1,12 @@
 name: release
 
 # Push a tag v<version> (matching VersionPrefix/VersionSuffix in Directory.Build.props) to publish
-# the NuGet package to nuget.org and the host image to ghcr.io, then create the GitHub Release.
+# every plugin's NuGet package to nuget.org and every host image to ghcr.io, then create the
+# GitHub Release. All plugins in this repo share one version.
 #
 # NuGet uses Trusted Publishing — no stored API key. The job's GitHub OIDC token is exchanged for a
 # 1-hour nuget.org key, which requires a Trusted Publishing policy on nuget.org (owner nightBaker):
-#   Repository Owner: nightBaker · Repository: fleans-camunda-external-task · Workflow File: release.yml
+#   Repository Owner: nightBaker · Repository: fleans-plugins · Workflow File: release.yml
 on:
   push:
     tags: ['v*']
@@ -26,7 +27,10 @@ jobs:
       - id: ver
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
       - run: dotnet test -c Release
-      - run: dotnet pack src/Fleans.Plugins.CamundaExternalTask -c Release -p:Version=${{ steps.ver.outputs.version }} -o artifacts
+      - run: |
+          for p in Fleans.Plugins.CamundaExternalTask Fleans.Plugins.RestCaller; do
+            dotnet pack src/$p -c Release -p:Version=${{ steps.ver.outputs.version }} -o artifacts
+          done
       # Requested right before the push: the temporary key is valid for one hour.
       - name: NuGet login (OIDC → temporary API key)
         id: nuget
@@ -40,12 +44,18 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push host image
+      - name: Push host images
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          image=ghcr.io/nightbaker/fleans-camunda-external-task
-          docker build -t $image:${{ steps.ver.outputs.version }} -t $image:latest .
-          docker push $image:${{ steps.ver.outputs.version }}
-          docker push $image:latest
+          push() {
+            image=ghcr.io/nightbaker/$1
+            docker build --build-arg HOST=$2 -t $image:$VERSION -t $image:latest .
+            docker push $image:$VERSION
+            docker push $image:latest
+          }
+          push fleans-camunda-external-task Fleans.CamundaExternalTask.Host
+          push fleans-rest-caller Fleans.RestCaller.Host
       # Last, so a release only appears once the package and the image are published.
       - name: Create GitHub Release
         env:
@@ -56,5 +66,7 @@ jobs:
           {
             echo "- NuGet: [\`Fleans.Plugins.CamundaExternalTask\` $VERSION](https://www.nuget.org/packages/Fleans.Plugins.CamundaExternalTask/$VERSION)"
             echo "- Image: \`ghcr.io/nightbaker/fleans-camunda-external-task:$VERSION\`"
+            echo "- NuGet: [\`Fleans.Plugins.RestCaller\` $VERSION](https://www.nuget.org/packages/Fleans.Plugins.RestCaller/$VERSION)"
+            echo "- Image: \`ghcr.io/nightbaker/fleans-rest-caller:$VERSION\`"
           } > notes.md
           gh release create "$GITHUB_REF_NAME" artifacts/*.nupkg --verify-tag --generate-notes --notes-file notes.md $prerelease
