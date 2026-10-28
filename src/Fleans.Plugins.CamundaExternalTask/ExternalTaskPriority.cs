@@ -1,15 +1,12 @@
 using System.Globalization;
-using Fleans.Application.CustomTasks;
-using Fleans.Domain.Activities;
 using Fleans.Domain.Errors;
 
 namespace Fleans.Plugins.CamundaExternalTask;
 
 /// <summary>
 /// Task priority, Camunda's <c>camunda:taskPriority</c>: the reserved input mapping
-/// <c>&lt;zeebe:input source="=10" target="taskPriority"/&gt;</c>. The source is a literal or a
-/// path over workflow variables, evaluated once when the task is queued. Without the mapping the
-/// priority is 0, as in Camunda.
+/// <c>&lt;zeebe:input source="=10" target="taskPriority"/&gt;</c>. The engine evaluates the source;
+/// its value is read once when the task is queued. Without the mapping the priority is 0, as in Camunda.
 /// </summary>
 public static class ExternalTaskPriority
 {
@@ -17,16 +14,14 @@ public static class ExternalTaskPriority
     public const string InputTarget = "taskPriority";
 
     /// <summary>
-    /// Evaluates the priority mapping against the activity's variables. Throws
-    /// <see cref="CustomTaskFailedActivityException"/> (code <c>400</c>) when it does not yield a
-    /// whole number (or a string of digits) — no retry can fix that, so the caller fails the activity.
+    /// The priority from the activity's resolved inputs. Throws
+    /// <see cref="CustomTaskFailedActivityException"/> (code <c>400</c>) when it is not a whole
+    /// number (or a string of digits) — no retry can fix that, so the caller fails the activity.
     /// </summary>
-    public static long Evaluate(IEnumerable<InputMapping> inputMappings, IDictionary<string, object?> variables)
+    public static long Evaluate(IDictionary<string, object?> inputs)
     {
-        var mapping = inputMappings.LastOrDefault(m => m.Target == InputTarget);
-        if (mapping is null) return 0;
+        if (!inputs.TryGetValue(InputTarget, out var value)) return 0;
 
-        var value = MappingResolver.Resolve(mapping.Source, variables);
         return value switch
         {
             long l => l,
@@ -38,7 +33,7 @@ public static class ExternalTaskPriority
             // A bare BPMN literal (source="10") resolves to a string.
             string text when long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) => parsed,
             var other => throw new CustomTaskFailedActivityException("400",
-                $"Task priority '{mapping.Source}' evaluated to '{other ?? "null"}', which is not a whole number."),
+                $"Task priority evaluated to '{other ?? "null"}', which is not a whole number."),
         };
     }
 

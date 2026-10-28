@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Dynamic;
 using Fleans.Application.Abstractions.Events;
 using Fleans.Application.Grains;
-using Fleans.Domain.Activities;
 using Fleans.Domain.Errors;
 using Fleans.Domain.Events;
 using Microsoft.Data.Sqlite;
@@ -52,9 +51,9 @@ public class StreamHandlerTests
     [TestMethod]
     public async Task Published_task_is_queued_fetched_and_completed_back_into_the_workflow()
     {
-        // Arrange — an active activity whose scope holds amount=42.
-        var (instanceId, evt) = NewTask("charge-card", inputs: [new InputMapping("=amount", "toCharge")]);
-        FakeWorkflowInstance.Activate(evt.ActivityInstanceId, ("amount", 42L));
+        // Arrange — an active activity whose scope holds amount=42 and the engine-resolved input.
+        var (instanceId, evt) = NewTask("charge-card", inputs: [("toCharge", 42L)]);
+        FakeWorkflowInstance.Activate(evt, ("amount", 42L));
 
         // Act
         await Publish(evt);
@@ -120,15 +119,13 @@ public class StreamHandlerTests
     }
 
     [TestMethod]
-    public async Task Priority_mapping_is_evaluated_when_the_task_is_queued()
+    public async Task Priority_input_is_read_when_the_task_is_queued()
     {
-        // Arrange — one literal, one expression over the activity's variables.
-        var (literalInstance, literal) = NewTask("ship-order", inputs: [new InputMapping("=10", ExternalTaskPriority.InputTarget)]);
-        var (expressionInstance, expression) = NewTask("ship-order",
-            inputs: [new InputMapping("=order.priority", ExternalTaskPriority.InputTarget)]);
-        FakeWorkflowInstance.Activate(literal.ActivityInstanceId);
-        FakeWorkflowInstance.Activate(expression.ActivityInstanceId,
-            ("order", new Dictionary<string, object?> { ["priority"] = 25L }));
+        // Arrange — a bare BPMN literal arrives as a string, an expression as a number.
+        var (literalInstance, literal) = NewTask("ship-order", inputs: [(ExternalTaskPriority.InputTarget, "10")]);
+        var (expressionInstance, expression) = NewTask("ship-order", inputs: [(ExternalTaskPriority.InputTarget, 25L)]);
+        FakeWorkflowInstance.Activate(literal);
+        FakeWorkflowInstance.Activate(expression);
 
         // Act
         await Publish(literal);
@@ -144,15 +141,15 @@ public class StreamHandlerTests
     }
 
     [TestMethod]
-    public async Task Business_key_and_tenant_id_are_evaluated_when_the_task_is_queued()
+    public async Task Business_key_and_tenant_id_are_read_when_the_task_is_queued()
     {
         // Arrange
         var (instanceId, evt) = NewTask("bill-order", inputs:
         [
-            new InputMapping("=order.id", ReservedInputs.BusinessKey),
-            new InputMapping("acme", ReservedInputs.TenantId),
+            (ReservedInputs.BusinessKey, 1001L),
+            (ReservedInputs.TenantId, "acme"),
         ]);
-        FakeWorkflowInstance.Activate(evt.ActivityInstanceId, ("order", new Dictionary<string, object?> { ["id"] = 1001L }));
+        FakeWorkflowInstance.Activate(evt);
 
         // Act
         await Publish(evt);
@@ -185,8 +182,8 @@ public class StreamHandlerTests
     {
         // Arrange
         var (instanceId, evt) = NewTask("bill-order",
-            inputs: [new InputMapping("=ref", ReservedInputs.BusinessKey)], businessId: "order-1001");
-        FakeWorkflowInstance.Activate(evt.ActivityInstanceId, ("ref", "invoice-7"));
+            inputs: [(ReservedInputs.BusinessKey, "invoice-7")], businessId: "order-1001");
+        FakeWorkflowInstance.Activate(evt);
 
         // Act
         await Publish(evt);
@@ -202,8 +199,8 @@ public class StreamHandlerTests
     {
         // Arrange — the process opts out of keying its tasks
         var (instanceId, evt) = NewTask("bill-order",
-            inputs: [new InputMapping("=ref", ReservedInputs.BusinessKey)], businessId: "order-1001");
-        FakeWorkflowInstance.Activate(evt.ActivityInstanceId, ("ref", null));
+            inputs: [(ReservedInputs.BusinessKey, null)], businessId: "order-1001");
+        FakeWorkflowInstance.Activate(evt);
 
         // Act
         await Publish(evt);
@@ -250,8 +247,9 @@ public class StreamHandlerTests
     public async Task Business_key_too_long_for_the_column_fails_the_activity_instead_of_retrying()
     {
         // Arrange
-        var (instanceId, evt) = NewTask("bill-order", inputs: [new InputMapping("=ref", ReservedInputs.BusinessKey)]);
-        FakeWorkflowInstance.Activate(evt.ActivityInstanceId, ("ref", new string('x', ReservedInputs.MaxLength + 1)));
+        var (instanceId, evt) = NewTask("bill-order",
+            inputs: [(ReservedInputs.BusinessKey, new string('x', ReservedInputs.MaxLength + 1))]);
+        FakeWorkflowInstance.Activate(evt);
 
         // Act
         await Publish(evt);
@@ -266,8 +264,8 @@ public class StreamHandlerTests
     public async Task Priority_that_is_not_a_number_fails_the_activity()
     {
         // Arrange
-        var (instanceId, evt) = NewTask("ship-order", inputs: [new InputMapping("=label", ExternalTaskPriority.InputTarget)]);
-        FakeWorkflowInstance.Activate(evt.ActivityInstanceId, ("label", "urgent"));
+        var (instanceId, evt) = NewTask("ship-order", inputs: [(ExternalTaskPriority.InputTarget, "urgent")]);
+        FakeWorkflowInstance.Activate(evt);
 
         // Act
         await Publish(evt);
@@ -279,9 +277,12 @@ public class StreamHandlerTests
     }
 
     private static (Guid InstanceId, ExecuteCustomTaskEvent Event) NewTask(
-        string topic, List<InputMapping>? inputs = null, string? businessId = null)
+        string topic, (string Target, object? Value)[]? inputs = null, string? businessId = null)
     {
         var instanceId = Guid.NewGuid();
+        var resolved = new ExpandoObject();
+        foreach (var (target, value) in inputs ?? [])
+            ((IDictionary<string, object?>)resolved)[target] = value;
         return (instanceId, new ExecuteCustomTaskEvent(
             WorkflowInstanceId: instanceId,
             WorkflowId: "order-process",
@@ -289,8 +290,7 @@ public class StreamHandlerTests
             ActivityInstanceId: Guid.NewGuid(),
             ActivityId: "task-" + topic,
             TaskType: CamundaExternalTaskConventions.TaskTypeFor(topic),
-            InputMappings: inputs ?? new List<InputMapping>(),
-            OutputMappings: new List<OutputMapping>(),
+            Inputs: resolved,
             VariablesId: Guid.NewGuid(),
             BusinessId: businessId));
     }
@@ -349,6 +349,11 @@ public sealed class FakeWorkflowInstance : Grain, IWorkflowInstanceCallback
     public static IReadOnlyCollection<Guid> Checked => Checks.Keys.ToList();
 
     public static int CheckCount(Guid activityInstanceId) => Checks.GetValueOrDefault(activityInstanceId);
+
+    /// <summary>Activates the task's activity; like the engine, its scope also holds the event's inputs.</summary>
+    public static void Activate(ExecuteCustomTaskEvent evt, params (string Name, object? Value)[] variables) =>
+        Activate(evt.ActivityInstanceId,
+            [.. variables, .. ((IDictionary<string, object?>)evt.Inputs).Select(kv => (kv.Key, kv.Value))]);
 
     public static void Activate(Guid activityInstanceId, params (string Name, object? Value)[] variables)
     {

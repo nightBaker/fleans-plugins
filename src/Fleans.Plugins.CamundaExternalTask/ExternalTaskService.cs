@@ -2,9 +2,7 @@ using System.Data.Common;
 using System.Dynamic;
 using System.Globalization;
 using System.Text.Json;
-using Fleans.Application.CustomTasks;
 using Fleans.Application.Grains;
-using Fleans.Domain.Activities;
 using Fleans.Domain.Errors;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -242,7 +240,7 @@ public sealed partial class ExternalTaskService(
 
             candidate.WorkerId = workerId;
             candidate.LockExpirationTime = expires;
-            var locked = ToLockedDto(candidate, variables, topic); // throws on a broken input mapping
+            var locked = ToLockedDto(candidate, variables, topic); // throws on a value Camunda cannot carry
             LogLocked(candidate.Id, candidate.TopicName, workerId);
             return locked;
         }
@@ -253,7 +251,7 @@ public sealed partial class ExternalTaskService(
         }
         catch (Exception ex) when (!IsTransient(ex) && ex is not DbException)
         {
-            // Deterministic (unknown variable scope, broken input mapping): no retry can fix it —
+            // Deterministic (unknown variable scope, unconvertible value): no retry can fix it —
             // fail the activity visibly instead of handing the task out again and again.
             LogClaimFailed(ex, candidate.Id, candidate.TopicName);
             try
@@ -284,9 +282,15 @@ public sealed partial class ExternalTaskService(
         var locals = ResolveInputs(task, all, topic.IncludeExtensionProperties, out var extensionProperties);
 
         var visible = new Dictionary<string, object?>(StringComparer.Ordinal);
-        if (!topic.LocalVariables)
-            foreach (var (name, value) in all) visible[name] = value;
-        foreach (var (name, value) in locals) visible[name] = value;
+        if (topic.LocalVariables)
+            foreach (var (name, value) in locals) visible[name] = value;
+        else
+        {
+            // The scope holds every input, reserved ones included; those are task metadata.
+            var reserved = InputTargets(task).Where(ReservedInputs.IsReserved).ToHashSet(StringComparer.Ordinal);
+            foreach (var (name, value) in all)
+                if (!reserved.Contains(name)) visible[name] = value;
+        }
 
         var selected = topic.Variables is null
             ? visible
@@ -316,30 +320,32 @@ public sealed partial class ExternalTaskService(
     }
 
     /// <summary>
-    /// The worker's local variables (input mappings) and, when asked for, the extension properties.
-    /// Other reserved inputs are task metadata read at queue time, not variables.
+    /// The worker's local variables (the inputs) and, when asked for, the extension properties.
+    /// The engine evaluated the inputs into the task's scope, so their values come from
+    /// <paramref name="scope"/>. Other reserved inputs are task metadata read at queue time, not variables.
     /// </summary>
     private static Dictionary<string, object?> ResolveInputs(
-        ExternalTaskEntity task, IDictionary<string, object?> processVariables, bool includeExtensionProperties,
+        ExternalTaskEntity task, IDictionary<string, object?> scope, bool includeExtensionProperties,
         out Dictionary<string, string> extensionProperties)
     {
         var locals = new Dictionary<string, object?>(StringComparer.Ordinal);
         extensionProperties = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var mapping in Deserialize<InputMapping>(task.InputMappingsJson))
+        foreach (var target in InputTargets(task))
         {
-            if (mapping.Target.StartsWith(ExtensionPropertyPrefix, StringComparison.Ordinal))
+            scope.TryGetValue(target, out var value);
+            if (target.StartsWith(ExtensionPropertyPrefix, StringComparison.Ordinal))
             {
-                if (includeExtensionProperties
-                    && MappingResolver.Resolve(mapping.Source, processVariables) is { } property)
-                    extensionProperties[mapping.Target[ExtensionPropertyPrefix.Length..]] =
-                        ReservedInputs.ToText(property) ?? "";
+                if (includeExtensionProperties && value is not null)
+                    extensionProperties[target[ExtensionPropertyPrefix.Length..]] = ReservedInputs.ToText(value) ?? "";
                 continue;
             }
-            if (!ReservedInputs.IsReserved(mapping.Target))
-                locals[mapping.Target] = MappingResolver.Resolve(mapping.Source, processVariables);
+            if (!ReservedInputs.IsReserved(target))
+                locals[target] = value;
         }
         return locals;
     }
+
+    private static List<string> InputTargets(ExternalTaskEntity task) => Deserialize<string>(task.InputTargetsJson);
 
     // ── file variables ──────────────────────────────────────────────────────
 
@@ -374,26 +380,22 @@ public sealed partial class ExternalTaskService(
 
         await Report(task, failActivityOnRejection: true, () =>
             Callback(task).CompleteActivity(task.ActivityId, task.ActivityInstanceId,
-                BuildOutputs(task, variables, localVariables)));
+                ToResult(variables, localVariables)));
         LogCompleted(id, task.TopicName, task.WorkerId);
     }
 
-    /// <summary><c>variables</c> land in the workflow scope; output mappings may also read the local ones.</summary>
-    private static ExpandoObject BuildOutputs(
-        ExternalTaskEntity task, Dictionary<string, object?> variables, Dictionary<string, object?> localVariables)
+    /// <summary>
+    /// The task's result: <c>variables</c> overlaid with <c>localVariables</c>. The engine applies
+    /// the output mappings to it; without any, all of it reaches the workflow scope.
+    /// </summary>
+    private static ExpandoObject ToResult(
+        Dictionary<string, object?> variables, Dictionary<string, object?> localVariables)
     {
-        var outputs = new ExpandoObject();
-        var outputsDict = (IDictionary<string, object?>)outputs;
-        foreach (var (name, value) in variables) outputsDict[name] = value;
-        var outputMappings = Deserialize<OutputMapping>(task.OutputMappingsJson);
-        if (outputMappings.Count > 0)
-        {
-            var scope = new Dictionary<string, object?>(variables, StringComparer.Ordinal);
-            foreach (var (name, value) in localVariables) scope[name] = value;
-            foreach (var mapping in outputMappings)
-                outputsDict[mapping.Target] = MappingResolver.Resolve(mapping.Source, scope);
-        }
-        return outputs;
+        var result = new ExpandoObject();
+        var resultDict = (IDictionary<string, object?>)result;
+        foreach (var (name, value) in variables) resultDict[name] = value;
+        foreach (var (name, value) in localVariables) resultDict[name] = value;
+        return result;
     }
 
     public async Task HandleFailure(string id, ExternalTaskFailureDto request)

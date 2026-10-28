@@ -76,7 +76,7 @@ public class CamundaExternalTaskApiTests
     public async Task FetchAndLock_returns_camunda_shaped_tasks_with_typed_variables()
     {
         // Arrange
-        var task = await Seed("charge-card", inputs: [new InputMapping("=amount", "toCharge")]);
+        var task = await Seed("charge-card", inputs: [("toCharge", 42L)]);
 
         // Act — the body camunda-external-task-client sends.
         var response = await _http.PostAsJsonAsync("/engine-rest/external-task/fetchAndLock", new
@@ -107,14 +107,14 @@ public class CamundaExternalTaskApiTests
         Assert.AreEqual(42, (int)variables["amount"]!["value"]!);
         Assert.AreEqual("String", (string?)variables["customer"]!["type"]);
         Assert.AreEqual("Boolean", (string?)variables["vip"]!["type"]);
-        Assert.AreEqual(42, (int)variables["toCharge"]!["value"]!, "Input mappings are exposed as variables.");
+        Assert.AreEqual(42, (int)variables["toCharge"]!["value"]!, "Inputs are exposed as variables.");
     }
 
     [TestMethod]
     public async Task FetchAndLock_honours_variable_names_and_local_variables()
     {
         // Arrange
-        await Seed("charge-card", inputs: [new InputMapping("=customer", "who")]);
+        await Seed("charge-card", inputs: [("who", "bob")]);
 
         // Act
         var named = await Fetch("w1", "charge-card", variables: ["amount"]);
@@ -160,10 +160,10 @@ public class CamundaExternalTaskApiTests
     }
 
     [TestMethod]
-    public async Task Complete_converts_typed_variables_and_applies_output_mappings()
+    public async Task Complete_converts_typed_variables_and_hands_them_with_the_local_ones_to_the_engine()
     {
-        // Arrange
-        var task = await Seed("charge-card", outputs: [new OutputMapping("=receipt.id", "receiptId")]);
+        // Arrange — the engine applies the output mappings to the result, so they can read the local variables.
+        var task = await Seed("charge-card");
         await Fetch("w1", "charge-card");
         ExpandoObject? completed = null;
         await _callback.CompleteActivity(Arg.Any<string>(), Arg.Any<Guid>(),
@@ -199,8 +199,7 @@ public class CamundaExternalTaskApiTests
         Assert.AreEqual(99.5, outputs["total"]);
         CollectionAssert.AreEqual(new List<object?> { 1L, 2L }, (List<object?>)((IDictionary<string, object?>)outputs["order"]!)["lines"]!);
         Assert.AreEqual("bob", ((IDictionary<string, object?>)outputs["customerDto"]!)["name"]);
-        Assert.AreEqual("R-1", outputs["receiptId"], "Output mappings read local variables.");
-        Assert.IsFalse(outputs.ContainsKey("receipt"), "Local variables do not leak into the workflow scope.");
+        Assert.AreEqual("R-1", ((IDictionary<string, object?>)outputs["receipt"]!)["id"], "Local variables are part of the result.");
         Assert.IsNull(await Row(task.Id), "A completed task leaves the table.");
     }
 
@@ -676,7 +675,7 @@ public class CamundaExternalTaskApiTests
     public async Task The_priority_input_mapping_is_not_sent_to_the_worker_as_a_variable()
     {
         // Arrange
-        await Seed("charge-card", inputs: [new InputMapping("=7", ExternalTaskPriority.InputTarget)], priority: 7);
+        await Seed("charge-card", inputs: [(ExternalTaskPriority.InputTarget, 7L)], priority: 7);
 
         // Act
         var tasks = await Fetch("w1", "charge-card", localVariables: true);
@@ -789,12 +788,12 @@ public class CamundaExternalTaskApiTests
     [TestMethod]
     public async Task Extension_properties_come_from_reserved_inputs_and_are_not_variables()
     {
-        // Arrange — a literal and an expression, as camunda:properties would carry.
+        // Arrange — a string and a number, as camunda:properties would carry.
         await Seed("charge-card", inputs:
         [
-            new InputMapping("eu-west", "extensionProperty_region"),
-            new InputMapping("=amount", "extensionProperty_limit"),
-            new InputMapping("=customer", "who"),
+            ("extensionProperty_region", "eu-west"),
+            ("extensionProperty_limit", 42L),
+            ("who", "bob"),
         ]);
 
         // Act
@@ -843,16 +842,24 @@ public class CamundaExternalTaskApiTests
     [TestMethod]
     public async Task Reserved_inputs_are_not_sent_as_variables()
     {
+        // Arrange — the engine put every input, reserved ones included, into the task's scope.
         await Seed("charge-card", inputs:
         [
-            new InputMapping("=customer", ReservedInputs.BusinessKey),
-            new InputMapping("acme", ReservedInputs.TenantId),
-            new InputMapping("=customer", "who"),
+            (ReservedInputs.BusinessKey, "bob"),
+            (ReservedInputs.TenantId, "acme"),
+            (ExternalTaskPriority.InputTarget, 5L),
+            ("extensionProperty_region", "eu-west"),
+            ("who", "bob"),
         ]);
 
-        var tasks = await Fetch("w1", "charge-card", localVariables: true);
+        // Act
+        var local = await Fetch("w1", "charge-card", localVariables: true);
+        await _http.PostAsync($"/engine-rest/external-task/{local[0]!["id"]}/unlock", null);
+        var all = await Fetch("w1", "charge-card");
 
-        CollectionAssert.AreEquivalent(new[] { "who" }, Names(tasks[0]!["variables"]!));
+        // Assert
+        CollectionAssert.AreEquivalent(new[] { "who" }, Names(local[0]!["variables"]!));
+        CollectionAssert.AreEquivalent(new[] { "amount", "customer", "vip", "who" }, Names(all[0]!["variables"]!));
     }
 
     [TestMethod]
@@ -1066,8 +1073,8 @@ public class CamundaExternalTaskApiTests
         _processVariables = Expando(("express", true), ("order", Expando(("id", 7L))));
         await Seed("charge-card", inputs:
         [
-            new InputMapping("=express", "extensionProperty_express"),
-            new InputMapping("=order", "extensionProperty_order"),
+            ("extensionProperty_express", true),
+            ("extensionProperty_order", Expando(("id", 7L))),
         ]);
 
         var response = await _http.PostAsJsonAsync("/engine-rest/external-task/fetchAndLock", new
@@ -1124,10 +1131,13 @@ public class CamundaExternalTaskApiTests
     private static string[] Ids(JsonArray tasks) => tasks.Select(t => (string)t!["id"]!).ToArray();
 
     private async Task<ExternalTaskEntity> Seed(
-        string topic, List<InputMapping>? inputs = null, List<OutputMapping>? outputs = null,
+        string topic, (string Target, object? Value)[]? inputs = null,
         string processDefinitionKey = "order-process", long priority = 0,
         string? businessKey = null, string? tenantId = null)
     {
+        // Like the engine: the resolved inputs live in the task's scope, the row keeps their targets.
+        foreach (var (target, value) in inputs ?? [])
+            ((IDictionary<string, object?>)_processVariables!)[target] = value;
         var activityInstanceId = Guid.NewGuid();
         var entity = new ExternalTaskEntity
         {
@@ -1139,8 +1149,7 @@ public class CamundaExternalTaskApiTests
             ActivityId = "ct1",
             ActivityInstanceId = activityInstanceId,
             VariablesId = Guid.NewGuid(),
-            InputMappingsJson = JsonSerializer.Serialize(inputs ?? []),
-            OutputMappingsJson = JsonSerializer.Serialize(outputs ?? []),
+            InputTargetsJson = JsonSerializer.Serialize((inputs ?? []).Select(i => i.Target).ToList()),
             Priority = priority,
             BusinessKey = businessKey,
             TenantId = tenantId,

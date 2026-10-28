@@ -30,7 +30,7 @@ Camunda workers ──fetchAndLock / complete / failure / bpmnError──┘ (/e
 | `tests/Fleans.Plugins.CamundaExternalTask.Tests` | REST wire-format tests (SQLite, plus PostgreSQL with `FLEANS_PG_TESTS=1`) and stream-handler tests on an Orleans test cluster. |
 | `docs/camunda-external-task/manual-test-plan/` | End-to-end check with a real Camunda client against a real engine. |
 
-**Compatibility:** plugin 0.9.0 requires **Fleans 0.9.0 or later** (built on `Fleans.Worker` 0.9.0 and Orleans 10.4; 0.8.0 added the process instance business id on `ExecuteCustomTaskEvent`, returned as `businessKey`). Run it against an engine built from the same Fleans version or newer.
+**Compatibility:** plugin 0.10.0 requires **Fleans 0.10.0 or later** (built on `Fleans.Worker` 0.10.0 and Orleans 10.4). 0.10.0 moved input/output mapping into the engine, so `ExecuteCustomTaskEvent` carries resolved inputs instead of mappings: upgrade the engine and the plugin host together. 0.8.0 added the process instance business id on `ExecuteCustomTaskEvent`, returned as `businessKey`. Run it against an engine built from the same Fleans version or newer.
 `FleansVersion` in `Directory.Build.props` pins the `Fleans.Worker` package the plugin compiles against.
 
 ## 1. Adapt the BPMN
@@ -50,9 +50,11 @@ sed -E -i.bak 's/camunda:type="external"[[:space:]]+camunda:topic="([^"]+)"/type
 ```
 
 Camunda's `<camunda:inputOutput>` is not read. Use Fleans
-[`<zeebe:ioMapping>`](https://nightbaker.github.io/fleans/concepts/custom-tasks/#mapping-grammar)
-instead: inputs appear to the worker as local variables, and outputs read the variables the
-worker sends on `complete`.
+[`<zeebe:ioMapping>`](https://nightbaker.github.io/fleans/concepts/activities/io-mapping/)
+instead. The engine evaluates it: inputs are computed when the activity starts and appear to the
+worker as local variables; outputs read the variables the worker sends on `complete`. With
+outputs declared, only they reach the workflow scope (as with Camunda's `outputParameter`);
+without any, everything the worker sends on `complete` does.
 
 ```xml
 <!-- Camunda 7 -->
@@ -79,7 +81,8 @@ worker sends on `complete`.
 | Constant text `EUR` | `source="EUR"` (or `source="=&quot;EUR&quot;"`) |
 | `${42}`, `${true}`, `${null}` | `source="=42"`, `source="=true"`, `source="=null"` |
 | `name` | `target` (letters, digits and `_` only) |
-| Expressions with operators or method calls, `<camunda:script>`, `<camunda:list>`, `<camunda:map>` | No equivalent. Compute the value earlier (a script task) or in the worker. |
+| `${order.amount * 2}`, `${a > 0 ? a : b}` and other expressions | A C# expression after `=`: `source="=order.amount * 2"`, `source="=a > 0 ? a : b"`. See [I/O mapping](https://nightbaker.github.io/fleans/concepts/activities/io-mapping/) for the syntax. |
+| `<camunda:script>`, `<camunda:list>`, `<camunda:map>` | No equivalent. Compute the value earlier (a script task) or in the worker. |
 
 Declare `xmlns:zeebe="http://camunda.org/schema/zeebe/1.0"` on `<bpmn:definitions>`.
 
@@ -100,9 +103,10 @@ Camunda's `camunda:taskPriority` attribute becomes the reserved input `taskPrior
 </bpmn:serviceTask>
 ```
 
-The source is a literal or a path over the workflow variables. It is evaluated once, when
-the task is queued, and must give a whole number (a string of digits also counts). Otherwise
-the activity fails with error code `400`. Without the input, the priority is `0`. `taskPriority` sets the priority
+The source is a literal or an expression over the workflow variables. The engine evaluates it
+when the activity starts; it must give a whole number (a string of digits also counts). Otherwise
+the activity fails with error code `400`. A source that does not evaluate at all (an unknown
+variable, a syntax error) fails the activity with code `500` before the task is queued. Without the input, the priority is `0`. `taskPriority` sets the priority
 only and is not sent to the worker as a variable. Workers that fetch with `usePriority: true`
 get the highest priority first, then the oldest. The Java and JS clients send that by default.
 
@@ -119,7 +123,7 @@ Camunda's `<camunda:properties>` become inputs whose target starts with `extensi
 
 Workers that fetch with `includeExtensionProperties: true` get them in `extensionProperties`
 as strings (`region`, `limit`). Fleans only accepts identifiers as input targets
-(`^[a-zA-Z_][a-zA-Z0-9_]*$`), so property names with `-` or `.` must be renamed. They are evaluated at fetch time, are not sent as variables,
+(`^[a-zA-Z_][a-zA-Z0-9_]*$`), so property names with `-` or `.` must be renamed. They are evaluated when the activity starts, are not sent as variables,
 and are left out when the source gives `null`.
 
 ### Business key and tenant id
@@ -130,7 +134,7 @@ instance is started (`"BusinessId": "order-123"` on `POST /Execution/start` or
 `POST /Execution/message`). Fleans has no tenants, so the tenant id comes from a reserved input.
 A mapped `businessKey` input replaces the business id, for example in a call activity's child
 instance, which has none. It wins even when it evaluates to `null`, so a process can leave its
-tasks unkeyed. Reserved inputs are evaluated when the task is queued:
+tasks unkeyed. Reserved inputs are evaluated when the activity starts and read when the task is queued:
 
 ```xml
 <zeebe:input source="=order.id" target="businessKey" />
@@ -152,6 +156,13 @@ existing table at startup.
 **Upgrading from 0.7.x:** the business key is set when a task is queued. Tasks queued by 0.7.x
 keep a `null` business key even when their instance has a business id, so a `businessKey`
 fetch filter does not match them. Drain or complete them first.
+
+**Upgrading from 0.9.x:** the table no longer stores mappings (`InputMappingsJson` and
+`OutputMappingsJson` are replaced by `InputTargetsJson`), and an engine older than 0.10.0 cannot
+talk to this plugin. Drain or complete waiting tasks, upgrade the engine and the plugin host
+together, and drop the `camunda_external_tasks` table so it is recreated at startup. Without
+output mappings, everything a worker sends on `complete` now reaches the workflow scope,
+`localVariables` included; declare outputs to keep variables out of it.
 
 ## 2. Run the plugin host
 
@@ -213,7 +224,7 @@ These are the endpoints the official Java and JS external-task clients call:
 | Endpoint | Notes |
 |---|---|
 | `POST /external-task/fetchAndLock` | `workerId`, `maxTasks`, `usePriority`, `sorting` (`createTime` `asc`/`desc`; oldest first by default), `asyncResponseTimeout` (long polling, up to 30 min), per topic `topicName`, `lockDuration`, `variables`, `localVariables`, `includeExtensionProperties`, `processDefinitionId(In)`, `processDefinitionKey(In)`, `businessKey`, `tenantIdIn`, `withoutTenantId`. |
-| `POST /external-task/{id}/complete` | `variables` go to the workflow scope. `localVariables` are visible only to output mappings. |
+| `POST /external-task/{id}/complete` | `variables` and `localVariables` (which win on a name clash) are the task's result. With output mappings only their targets reach the workflow scope; without any, the whole result does. |
 | `POST /external-task/{id}/failure` | `retries > 0`: the task is fetchable again after `retryTimeout`. `retries = 0`: the activity fails. |
 | `POST /external-task/{id}/bpmnError` | Fails the activity with `errorCode`. An error boundary event with that code catches it. `variables` are set in the activity scope first, so the boundary path sees them. |
 | `POST /external-task/{id}/extendLock`, `/lock`, `/unlock` | Same semantics as Camunda. |

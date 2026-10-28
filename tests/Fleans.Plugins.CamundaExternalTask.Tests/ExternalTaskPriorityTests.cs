@@ -1,67 +1,48 @@
-using System.Dynamic;
-using Fleans.Domain.Activities;
 using Fleans.Domain.Errors;
 
 namespace Fleans.Plugins.CamundaExternalTask.Tests;
 
+/// <summary>The engine evaluates the <c>taskPriority</c> input; these cover how its value becomes a priority.</summary>
 [TestClass]
 public class ExternalTaskPriorityTests
 {
-    private static readonly Dictionary<string, object?> NoVariables = new();
-
     [TestMethod]
-    public void Without_the_mapping_the_priority_is_zero()
+    public void Without_the_input_the_priority_is_zero()
     {
-        var priority = ExternalTaskPriority.Evaluate([new InputMapping("=amount", "toCharge")], NoVariables);
+        var priority = ExternalTaskPriority.Evaluate(Inputs(("toCharge", 42L)));
 
         Assert.AreEqual(0L, priority);
     }
 
     [TestMethod]
-    [DataRow("=10", 10L)]
-    [DataRow("10", 10L)]
-    [DataRow("=-5", -5L)]
-    [DataRow("=3.0", 3L)]
-    public void Literal_priority(string source, long expected)
+    public void A_bare_bpmn_literal_arrives_as_a_string_of_digits()
     {
-        var priority = ExternalTaskPriority.Evaluate([Mapping(source)], NoVariables);
-
-        Assert.AreEqual(expected, priority);
-    }
-
-    [TestMethod]
-    public void Expression_priority_reads_workflow_variables()
-    {
-        // Arrange — as the engine hands them over: nested objects are ExpandoObjects.
-        var order = new ExpandoObject();
-        ((IDictionary<string, object?>)order)["priority"] = 42L;
-        var variables = new Dictionary<string, object?> { ["order"] = order, ["urgency"] = 7 };
-
-        // Act + Assert
-        Assert.AreEqual(42L, ExternalTaskPriority.Evaluate([Mapping("=order.priority")], variables));
-        Assert.AreEqual(7L, ExternalTaskPriority.Evaluate([Mapping("=urgency")], variables));
+        Assert.AreEqual(10L, ExternalTaskPriority.Evaluate(Priority("10")));
+        Assert.AreEqual(-5L, ExternalTaskPriority.Evaluate(Priority("-5")));
     }
 
     [TestMethod]
     public void Whole_numbers_of_any_numeric_type_are_accepted()
     {
-        foreach (var value in new object[] { 3, (short)3, (byte)3, (sbyte)3, (ushort)3, 3u, 3UL, 3.0f, 3.0, 3m })
-            Assert.AreEqual(3L, ExternalTaskPriority.Evaluate([Mapping("=p")], new Dictionary<string, object?> { ["p"] = value }),
-                value.GetType().Name);
+        foreach (var value in new object[] { 3, 3L, (short)3, (byte)3, (sbyte)3, (ushort)3, 3u, 3UL, 3.0f, 3.0, 3m })
+            Assert.AreEqual(3L, ExternalTaskPriority.Evaluate(Priority(value)), value.GetType().Name);
     }
 
     [TestMethod]
-    [DataRow("=missing")]
-    [DataRow("=\"high\"")]
-    [DataRow("=2.5")]
-    [DataRow("=true")]
-    public void Priority_that_is_not_a_whole_number_fails_with_code_400(string source)
+    [DataRow(null)]
+    [DataRow("high")]
+    [DataRow(2.5)]
+    [DataRow(true)]
+    public void Priority_that_is_not_a_whole_number_fails_with_code_400(object? value)
     {
         var ex = Assert.ThrowsExactly<CustomTaskFailedActivityException>(() =>
-            ExternalTaskPriority.Evaluate([Mapping(source)], NoVariables));
+            ExternalTaskPriority.Evaluate(Priority(value)));
 
         Assert.AreEqual("400", ex.GetActivityErrorState().Code);
     }
 
-    private static InputMapping Mapping(string source) => new(source, ExternalTaskPriority.InputTarget);
+    private static Dictionary<string, object?> Priority(object? value) => Inputs((ExternalTaskPriority.InputTarget, value));
+
+    private static Dictionary<string, object?> Inputs(params (string Target, object? Value)[] inputs) =>
+        inputs.ToDictionary(i => i.Target, i => i.Value);
 }
