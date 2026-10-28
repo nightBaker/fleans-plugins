@@ -1,6 +1,4 @@
 using System.Globalization;
-using Fleans.Application.CustomTasks;
-using Fleans.Domain.Activities;
 using Fleans.Domain.Errors;
 
 namespace Fleans.Plugins.CamundaExternalTask;
@@ -30,27 +28,23 @@ public static class ReservedInputs
         || target.StartsWith(ExternalTaskService.ExtensionPropertyPrefix, StringComparison.Ordinal);
 
     /// <summary>
-    /// The mapping for <paramref name="target"/> as a string; null when absent or null. Throws
+    /// The resolved input <paramref name="target"/> as a string; null when absent or null. Throws
     /// <see cref="CustomTaskFailedActivityException"/> (code <c>400</c>) when it is longer than
     /// <see cref="MaxLength"/>, since a retry cannot make it fit the column.
     /// </summary>
-    public static string? EvaluateString(
-        IEnumerable<InputMapping> inputMappings, string target, IDictionary<string, object?> variables)
-    {
-        var mapping = inputMappings.LastOrDefault(m => m.Target == target);
-        if (mapping is null) return null;
-        return CheckLength(target, $"'{mapping.Source}'", ToText(MappingResolver.Resolve(mapping.Source, variables)));
-    }
+    public static string? EvaluateString(IDictionary<string, object?> inputs, string target) =>
+        inputs.TryGetValue(target, out var value)
+            ? CheckLength(target, "(the input)", ToText(value))
+            : null;
 
     /// <summary>
     /// The task's business key: the reserved <see cref="BusinessKey"/> input when mapped (a null
     /// result included, so a process can opt out), otherwise the instance's business id. Both go
     /// through the <see cref="MaxLength"/> check, so the column fits whatever the engine allows.
     /// </summary>
-    public static string? EvaluateBusinessKey(
-        IEnumerable<InputMapping> inputMappings, string? instanceBusinessId, IDictionary<string, object?> variables)
-        => inputMappings.Any(m => m.Target == BusinessKey)
-            ? EvaluateString(inputMappings, BusinessKey, variables)
+    public static string? EvaluateBusinessKey(IDictionary<string, object?> inputs, string? instanceBusinessId)
+        => inputs.ContainsKey(BusinessKey)
+            ? EvaluateString(inputs, BusinessKey)
             : CheckLength(BusinessKey, "(the instance business id)", instanceBusinessId);
 
     private static string? CheckLength(string target, string source, string? text)

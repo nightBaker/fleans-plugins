@@ -75,15 +75,16 @@ public sealed partial class CamundaExternalTaskHandler(
         if (await db.ExternalTasks.AnyAsync(t => t.Id == id))
             return; // redelivered while still waiting — the row (and its priority) is already there
 
-        var scope = (IDictionary<string, object?>)variables;
+        // The engine already evaluated the input mappings; reserved ones carry task metadata.
+        var inputs = (IDictionary<string, object?>)item.Inputs;
         long priority;
         string? businessKey, tenantId;
         try
         {
-            priority = ExternalTaskPriority.Evaluate(item.InputMappings, scope);
+            priority = ExternalTaskPriority.Evaluate(inputs);
             // The reserved input, when mapped, replaces the instance's business id (e.g. a call activity's child, which has none).
-            businessKey = ReservedInputs.EvaluateBusinessKey(item.InputMappings, item.BusinessId, scope);
-            tenantId = ReservedInputs.EvaluateString(item.InputMappings, ReservedInputs.TenantId, scope);
+            businessKey = ReservedInputs.EvaluateBusinessKey(inputs, item.BusinessId);
+            tenantId = ReservedInputs.EvaluateString(inputs, ReservedInputs.TenantId);
         }
         catch (CustomTaskFailedActivityException ex)
         {
@@ -103,8 +104,7 @@ public sealed partial class CamundaExternalTaskHandler(
             ActivityId = item.ActivityId,
             ActivityInstanceId = item.ActivityInstanceId,
             VariablesId = item.VariablesId,
-            InputMappingsJson = JsonSerializer.Serialize(item.InputMappings),
-            OutputMappingsJson = JsonSerializer.Serialize(item.OutputMappings),
+            InputTargetsJson = JsonSerializer.Serialize(inputs.Keys.ToList()),
             Priority = priority,
             BusinessKey = businessKey,
             TenantId = tenantId,

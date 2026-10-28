@@ -18,11 +18,11 @@ public sealed class ExternalTaskEntity
     public required Guid ActivityInstanceId { get; set; }
     public required Guid VariablesId { get; set; }
 
-    /// <summary>JSON array of <c>{source,target}</c> input mappings from the BPMN.</summary>
-    public required string InputMappingsJson { get; set; }
-
-    /// <summary>JSON array of <c>{source,target}</c> output mappings from the BPMN.</summary>
-    public required string OutputMappingsJson { get; set; }
+    /// <summary>
+    /// JSON array of the activity's input targets. The engine evaluates the inputs into the
+    /// activity's own scope (<see cref="VariablesId"/>), so their values are read from there on fetch.
+    /// </summary>
+    public required string InputTargetsJson { get; set; }
 
     /// <summary>Higher is fetched first when a worker asks for <c>usePriority</c>. See <see cref="ExternalTaskPriority"/>.</summary>
     public long Priority { get; set; }

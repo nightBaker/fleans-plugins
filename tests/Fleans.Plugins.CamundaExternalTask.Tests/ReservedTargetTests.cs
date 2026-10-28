@@ -24,11 +24,10 @@ public class ReservedInputsTests
     [TestMethod]
     public void A_business_key_longer_than_the_column_fails_with_code_400()
     {
-        var variables = new Dictionary<string, object?> { ["ref"] = new string('x', ReservedInputs.MaxLength + 1) };
+        var inputs = new Dictionary<string, object?> { [ReservedInputs.BusinessKey] = new string('x', ReservedInputs.MaxLength + 1) };
 
         var ex = Assert.ThrowsExactly<Fleans.Domain.Errors.CustomTaskFailedActivityException>(() =>
-            ReservedInputs.EvaluateString([new Fleans.Domain.Activities.InputMapping("=ref", ReservedInputs.BusinessKey)],
-                ReservedInputs.BusinessKey, variables));
+            ReservedInputs.EvaluateString(inputs, ReservedInputs.BusinessKey));
 
         Assert.AreEqual("400", ex.GetActivityErrorState().Code);
     }

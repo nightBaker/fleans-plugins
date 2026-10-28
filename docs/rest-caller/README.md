@@ -15,7 +15,9 @@ The Fleans engine images do not bundle this plugin. Run it in this repo's plugin
 add it to your own plugin host with one line.
 
 **Compatibility:** built against `Fleans.Worker` `$(FleansVersion)` from `Directory.Build.props`
-(0.9.0 at the time of writing). Run it against an engine of the same Fleans version or newer.
+(0.10.0 at the time of writing). Run it against an engine of the same Fleans version or newer.
+From 0.10.0 the engine evaluates the input/output mappings, so engine and plugin host are
+upgraded together.
 
 ## Run the plugin host
 
@@ -97,3 +99,12 @@ Start the workflow with the variables that populate the inputs:
 ```
 
 The activity completes with `user` (the parsed JSON body) and `status` (the integer status code) merged into the workflow scope. Author can route subsequent gateways on `status`.
+
+The engine evaluates the mappings before the request is sent and after it returns. Sources after
+`=` are C# expressions (`=baseUrl + "/users/" + userId`, `=__response.body.items.Count`); see
+[I/O mapping](https://nightbaker.github.io/fleans/concepts/activities/io-mapping/). A source that
+does not evaluate fails the activity with code `500`, naming the expression and the target.
+
+**Declare outputs.** Without any `<fleans:output>`, the whole result reaches the workflow scope:
+a `__response` variable with the full body and every response header (`Set-Cookie` included).
+Map just what the process needs.
