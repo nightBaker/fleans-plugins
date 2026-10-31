@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Sample external worker for Fleans Kafka external tasks (nightBaker/fleans#979): reads
+       `fleans.tasks.<type>` with its own consumer group and completes each task over REST.
+       Deliberately engine-free — Confluent.Kafka and HttpClient only, the same shape a worker in any
+       language has. Also the worker of the engine's load test (fleans: tests/load/overrides/kafka-worker.yml).
+       Not a plugin, never packed. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Confluent.Kafka" Version="2.6.1" />
+  </ItemGroup>
+
+</Project>
