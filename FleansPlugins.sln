@@ -17,6 +17,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fleans.Plugins.RestCaller",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fleans.Plugins.RestCaller.Tests", "tests\Fleans.Plugins.RestCaller.Tests\Fleans.Plugins.RestCaller.Tests.csproj", "{01499F73-7E01-43FB-892C-ABE2AA0D81DA}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "samples", "samples", "{5D20AA90-6969-D8BD-9DCD-8634F4692FDA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Fleans.Samples.KafkaWorker", "samples\Fleans.Samples.KafkaWorker\Fleans.Samples.KafkaWorker.csproj", "{29773EAD-1CD8-480F-8B1B-25398391479B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -87,6 +91,18 @@ Global
 		{01499F73-7E01-43FB-892C-ABE2AA0D81DA}.Release|x64.Build.0 = Release|Any CPU
 		{01499F73-7E01-43FB-892C-ABE2AA0D81DA}.Release|x86.ActiveCfg = Release|Any CPU
 		{01499F73-7E01-43FB-892C-ABE2AA0D81DA}.Release|x86.Build.0 = Release|Any CPU
+		{29773EAD-1CD8-480F-8B1B-25398391479B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{29773EAD-1CD8-480F-8B1B-25398391479B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{29773EAD-1CD8-480F-8B1B-25398391479B}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{29773EAD-1CD8-480F-8B1B-25398391479B}.Debug|x64.Build.0 = Debug|Any CPU
+		{29773EAD-1CD8-480F-8B1B-25398391479B}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{29773EAD-1CD8-480F-8B1B-25398391479B}.Debug|x86.Build.0 = Debug|Any CPU
+		{29773EAD-1CD8-480F-8B1B-25398391479B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{29773EAD-1CD8-480F-8B1B-25398391479B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{29773EAD-1CD8-480F-8B1B-25398391479B}.Release|x64.ActiveCfg = Release|Any CPU
+		{29773EAD-1CD8-480F-8B1B-25398391479B}.Release|x64.Build.0 = Release|Any CPU
+		{29773EAD-1CD8-480F-8B1B-25398391479B}.Release|x86.ActiveCfg = Release|Any CPU
+		{29773EAD-1CD8-480F-8B1B-25398391479B}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -97,5 +113,6 @@ Global
 		{B11A60B4-BBE6-4365-8229-D5A2161A893F} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{CAC5B47F-DA38-4663-8EBB-2DDFA2D5D7C6} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{01499F73-7E01-43FB-892C-ABE2AA0D81DA} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{29773EAD-1CD8-480F-8B1B-25398391479B} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
 	EndGlobalSection
 EndGlobal
