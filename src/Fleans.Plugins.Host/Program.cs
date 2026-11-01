@@ -75,6 +75,8 @@ if (Is(streamingProvider, "Redis"))
 
 builder.UseOrleans(silo =>
 {
+    // Also wires the engine's reminder table from Fleans:Reminders:Provider: every silo serves a
+    // slice of the reminder ring, engine BPMN timers included (nightBaker/fleans#788).
     silo.AddFleansPluginHost(builder.Configuration);
 
     if (!aspireClustering.Exists())
@@ -88,18 +90,6 @@ builder.UseOrleans(silo =>
         else
             silo.UseRedisClustering(OrleansRedis());
     }
-
-    // Every silo serves a slice of the reminder ring, including engine reminders (BPMN timers);
-    // use the engine's reminder table so those keep their durability.
-    if (Is(remindersProvider, "Postgres"))
-        silo.UseAdoNetReminderService(o =>
-        {
-            o.Invariant = "Npgsql";
-            o.ConnectionString = PostgresFor("fleans-reminders", "Fleans:Reminders:Provider");
-        });
-    else
-        silo.UseRedisReminderService(o => o.ConfigurationOptions = ConfigurationOptions.Parse(OrleansRedis()));
-    silo.Configure<ReminderOptions>(builder.Configuration.GetSection("Fleans:Reminders"));
 
     // The engine subscribes through implicit subscriptions only (no PubSubStore), and every silo
     // of a cluster must use the same pub-sub type.
