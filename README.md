@@ -57,8 +57,9 @@ if you only use the REST Caller (its database is created at startup and can live
 PostgreSQL server).
 
 To write your own plugin, see
-[Writing custom tasks](https://nightbaker.github.io/fleans/guides/writing-custom-tasks/) and
-[External workers](https://nightbaker.github.io/fleans/guides/external-workers/).
+[Writing custom tasks](https://nightbaker.github.io/fleans/guides/writing-custom-tasks/),
+[External workers](https://nightbaker.github.io/fleans/guides/external-workers/) and the
+[fleans-custom-worker-example](https://github.com/nightBaker/fleans-custom-worker-example) template.
 
 ## Build & test
 

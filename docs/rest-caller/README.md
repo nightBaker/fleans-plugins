@@ -34,7 +34,8 @@ builder.Services.AddRestCallerPlugin();
 
 See [Writing custom tasks](https://nightbaker.github.io/fleans/guides/writing-custom-tasks/) for
 the handler contract and [External workers](https://nightbaker.github.io/fleans/guides/external-workers/)
-for the worker process.
+for the worker process, or start from
+[fleans-custom-worker-example](https://github.com/nightBaker/fleans-custom-worker-example).
 
 ## Parameters
 
