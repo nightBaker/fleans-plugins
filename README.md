@@ -46,7 +46,7 @@ The Helm chart runs this image with `plugins.enabled=true`.
 |---|---|---|
 | `Fleans__ExternalTaskWorker__EngineUrl` | *required* | The Fleans API base URL. |
 | `Fleans__ExternalTaskWorker__AccessToken` | — | Bearer token, for an API with authentication on. Also used for the Camunda plugin's REST calls. |
-| `Fleans__ExternalTaskWorker__UseGrpcWeb` | `true` | gRPC-Web over HTTP/1.1, which works against any API endpoint. `false` for HTTP/2 endpoints. |
+| `Fleans__ExternalTaskWorker__UseGrpcWeb` | `true` | gRPC-Web over HTTP/1.1, which works against any API endpoint. `false` for HTTP/2 endpoints; the Camunda plugin's REST calls then use HTTP/2 too. |
 | `Fleans__ExternalTaskWorker__MaxConcurrentTasks` | `32` | Tasks run at the same time in this process. |
 
 Delivery is at-least-once: a task can run again after a dropped connection or a timeout, which is
@@ -57,25 +57,8 @@ if you only use the REST Caller (its database is created at startup and can live
 PostgreSQL server).
 
 To write your own plugin, see
-[Writing custom tasks](https://nightbaker.github.io/fleans/guides/writing-custom-tasks/) and the
-[fleans-custom-worker-example](https://github.com/nightBaker/fleans-custom-worker-example) template.
-
-## Samples
-
-[`samples/Fleans.Samples.KafkaWorker`](samples/Fleans.Samples.KafkaWorker) is not a plugin: it is an
-external worker for the engine's Kafka external tasks
-([guide](https://nightbaker.github.io/fleans/guides/external-workers-kafka/)). It reads
-`fleans.tasks.<type>` in its own consumer group and completes each task over REST, using only
-Confluent.Kafka and `HttpClient`. Settings are environment variables, listed at the top of its
-`Program.cs`:
-
-```bash
-KAFKA_BROKERS=kafka:9092 FLEANS_URL=http://fleans-api:8080 TASK_TYPE=charge-card \
-  dotnet run --project samples/Fleans.Samples.KafkaWorker
-```
-
-The engine's load test (`tests/load/overrides/kafka-worker.yml` in `nightBaker/fleans`) builds its
-worker image from this project.
+[Writing custom tasks](https://nightbaker.github.io/fleans/guides/writing-custom-tasks/) and
+[External workers](https://nightbaker.github.io/fleans/guides/external-workers/).
 
 ## Build & test
 

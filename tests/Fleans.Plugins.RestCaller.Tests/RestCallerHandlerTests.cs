@@ -426,7 +426,7 @@ public class RestCallerHandlerTests
     [TestMethod]
     public async Task ResponseBodyExceedingBufferCap_FailsWith502()
     {
-        // Body > the silo ceiling (the client's MaxResponseContentBufferSize) is rejected by
+        // Body > the worker ceiling (the client's MaxResponseContentBufferSize) is rejected by
         // ReadBodyAsync's bounded LoadIntoBufferAsync → "502".
         var oversized = new byte[RestCallerServiceCollectionExtensions.DefaultMaxResponseContentBufferSize + 1];
         var handler = MakeCappedHandler(new FixedBodyHandler(oversized));
@@ -491,7 +491,7 @@ public class RestCallerHandlerTests
     [TestMethod]
     public async Task MaxResponseBytes_AboveCeiling_IsClampedToCeiling()
     {
-        // A per-task value can only lower the silo ceiling — asking for more still fails at ceiling + 1.
+        // A per-task value can only lower the worker ceiling — asking for more still fails at ceiling + 1.
         var oversized = new byte[RestCallerServiceCollectionExtensions.DefaultMaxResponseContentBufferSize + 1];
         var handler = MakeCappedHandler(new FixedBodyHandler(oversized, declareLength: false));
 

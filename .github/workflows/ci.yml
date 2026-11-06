@@ -30,8 +30,8 @@ jobs:
         run: dotnet test --no-build -c Release --logger "trx;LogFileName=tests.trx"
       - name: Fail if the PostgreSQL tests were skipped
         run: |
-          trx=$(find tests -name tests.trx | head -1)
-          skipped=$(python3 -c "import sys,xml.etree.ElementTree as ET; ns={'t':'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'}; c=ET.parse(sys.argv[1]).getroot().find('.//t:Counters',ns); print(int(c.get('notExecuted','0'))+int(c.get('inconclusive','0')))" "$trx")
+          # Every test project writes its own file; the PostgreSQL tests are in only one of them.
+          skipped=$(find tests -name tests.trx -print0 | xargs -0 python3 -c "import sys,xml.etree.ElementTree as ET; ns={'t':'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'}; files=sys.argv[1:]; assert files, 'no tests.trx found'; counters=[ET.parse(f).getroot().find('.//t:Counters',ns) for f in files]; print(sum(int(c.get('notExecuted','0'))+int(c.get('inconclusive','0')) for c in counters))")
           echo "skipped/inconclusive: $skipped"
           [ "$skipped" -eq 0 ]
 

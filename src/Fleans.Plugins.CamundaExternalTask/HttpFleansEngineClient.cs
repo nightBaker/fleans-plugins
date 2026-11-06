@@ -4,6 +4,7 @@ using System.Text;
 using Fleans.ExternalTasks.Sdk;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Fleans.Plugins.CamundaExternalTask;
 
@@ -21,10 +22,30 @@ internal sealed class HttpFleansEngineClient(
     {
         using var response = await Send(HttpMethod.Get,
             $"Execution/{workflowInstanceId:D}/activities/{activityInstanceId:D}/variables", null, cancellationToken);
-        if (response.StatusCode == HttpStatusCode.NotFound) return null;
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            // The caller deletes the task on null, so only the engine's own answer may mean "gone":
+            // a proxy, a gateway or a wrong URL answers 404 for a task that is still waiting.
+            var notFound = await response.Content.ReadAsStringAsync(cancellationToken);
+            return IsEngineErrorResponse(notFound)
+                ? null
+                : throw new EngineUnavailableException($"404 from something other than the Fleans engine's API: {notFound}");
+        }
         await EnsureSuccess(response, cancellationToken);
         var json = await response.Content.ReadAsStringAsync(cancellationToken);
         return JsonConvert.DeserializeObject<ExpandoObject>(json) ?? new ExpandoObject();
+    }
+
+    private static bool IsEngineErrorResponse(string body)
+    {
+        try
+        {
+            return JToken.Parse(body) is JObject answer && answer["error"]?.Type == JTokenType.String;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     public async Task CompleteActivity(
@@ -63,7 +84,15 @@ internal sealed class HttpFleansEngineClient(
         var worker = options.Value;
         var engineUrl = worker.EngineUrl
             ?? throw new InvalidOperationException("Fleans:ExternalTaskWorker:EngineUrl is required.");
-        using var request = new HttpRequestMessage(method, new Uri(engineUrl, path));
+        // Without the trailing slash, a relative Uri would replace the last segment of a path prefix.
+        var baseUrl = engineUrl.AbsoluteUri.EndsWith('/') ? engineUrl : new Uri(engineUrl.AbsoluteUri + "/");
+        using var request = new HttpRequestMessage(method, new Uri(baseUrl, path));
+        if (!worker.UseGrpcWeb)
+        {
+            // Native gRPC means the endpoint speaks HTTP/2, possibly nothing else (plain http, Protocols=Http2).
+            request.Version = HttpVersion.Version20;
+            request.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
+        }
         if (body is not null)
             request.Content = new StringContent(JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");
 
@@ -91,7 +120,9 @@ internal sealed class HttpFleansEngineClient(
         if (response.IsSuccessStatusCode) return;
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         var detail = $"The Fleans engine answered {(int)response.StatusCode} {response.ReasonPhrase}: {body}";
-        throw (int)response.StatusCode >= 500 || response.StatusCode == HttpStatusCode.TooManyRequests
+        // Refused credentials say nothing about the task: an operator or a token refresh fixes them.
+        throw (int)response.StatusCode >= 500
+            || response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
             ? new EngineUnavailableException(detail)
             : new EngineRejectedException(detail);
     }

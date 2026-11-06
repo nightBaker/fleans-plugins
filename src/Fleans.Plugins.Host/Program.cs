@@ -3,9 +3,8 @@ using Fleans.Plugins.CamundaExternalTask;
 using Fleans.Plugins.RestCaller;
 
 // The worker for every plugin in this repo: a gRPC client of the Fleans API
-// (Fleans:ExternalTaskWorker:EngineUrl, same contract as
-// github.com/nightBaker/fleans-custom-worker-example). It joins no cluster and takes no Orleans
-// dependency; it is a web host only because the Camunda plugin serves /engine-rest.
+// (Fleans:ExternalTaskWorker:EngineUrl). It joins no cluster and takes no Orleans dependency; it is
+// a web host only because the Camunda plugin serves /engine-rest.
 
 var builder = WebApplication.CreateBuilder(args);
 
