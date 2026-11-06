@@ -41,9 +41,9 @@ The `charge` activity stays **Active** until a worker runs.
 
 `MODE=failure node worker.js`. Expect: `isFailed: true`. `charge` has `errorState.code = "500"`, with a message of `card service down` followed by a newline and `HTTP 503`. The host logs EventId 9363.
 
-## Scenario D — cancelled instance
+## Scenario D — activity that ended without a worker
 
-Cancel a started instance from the Web UI before running a worker. Then `MODE=complete node worker.js` receives no task, and the host logs EventId 9365 (*stale task removed*).
+The engine has no instance cancel, so end the activity another way: before running a worker, settle it with `POST /Execution/complete-activity` (`WorkflowInstanceId`, `ActivityId`, `ActivityInstanceId` from `GET /Instances/<id>/state`). Then `MODE=complete node worker.js` receives no task, the host logs EventId 9365 (*stale task removed*), and `GET /engine-rest/external-task/count` returns `{"count":0}`.
 
 ## Scenario E — business key from the instance business id
 
@@ -53,4 +53,4 @@ Then `MODE=complete node worker.js`. Expect: the worker logs `businessKey = orde
 engine side of the contract (the engine sends the instance's business id with the task), which the handler
 tests only simulate.
 
-STATUS: last run 2026-11-06 on the gRPC worker (nightBaker/fleans#1013), against the engine branch and this repo's image: scenarios A, B, C and E passed with `camunda-external-task-client-js` 3. Scenario D was checked by settling the activity over REST (`POST /Execution/complete-activity`) rather than cancelling in the Web UI: the next `fetchAndLock` returned nothing and the count dropped to 0.
+STATUS: last run 2026-11-06 on the gRPC worker (nightBaker/fleans#1013), against the engine branch and this repo's image: scenarios A, B, C and E passed with `camunda-external-task-client-js` 3. Scenario D passed at the REST level (`fetchAndLock` instead of the JS client).
