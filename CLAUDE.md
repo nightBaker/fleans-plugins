@@ -30,8 +30,6 @@ same plugin from nuget.org without copying setup code. *How to apply:* a new plu
 project + its one-line extension + one line in the host + a row in the README plugin table and a
 `docs/<plugin>/README.md`.
 
-Samples (`samples/`) are not plugins: never packed (`IsPackable=false`), not added to the host.
-
 ## Conventions
 
 - `FleansVersion` in `Directory.Build.props` pins the `Fleans.ExternalTasks.Sdk` package plugins compile
