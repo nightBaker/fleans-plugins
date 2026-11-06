@@ -53,4 +53,4 @@ Then `MODE=complete node worker.js`. Expect: the worker logs `businessKey = orde
 engine side of the contract (the engine sends the instance's business id with the task), which the handler
 tests only simulate.
 
-STATUS: last run 2026-11-06 on the gRPC worker (nightBaker/fleans#1013), against the engine branch: scenarios A, B and E passed with `camunda-external-task-client-js` 3; scenario C passed at the REST level (`POST /external-task/{id}/failure` with no retries). D not run.
+STATUS: last run 2026-11-06 on the gRPC worker (nightBaker/fleans#1013), against the engine branch and this repo's image: scenarios A, B, C and E passed with `camunda-external-task-client-js` 3. Scenario D was checked by settling the activity over REST (`POST /Execution/complete-activity`) rather than cancelling in the Web UI: the next `fetchAndLock` returned nothing and the count dropped to 0.
