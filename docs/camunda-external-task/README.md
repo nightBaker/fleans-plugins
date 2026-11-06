@@ -260,8 +260,10 @@ the bare `application/json` content type, the only one the JS client parses.
   incidents with `GET /external-task?noRetriesLeft=true` and resolve them with
   `PUT /external-task/{id}/retries`. Incidents do not show in the Fleans UI. An incident whose
   workflow was cancelled stays listed until its retries are set. The next fetch then removes it.
-- **Variable types:** `String`, `Boolean`, `Integer`, `Short`, `Long`, `Double`, `Date` (kept as a
-  string), `Null`, `Json`, `Bytes`, `File`, and `Object` with `serializationDataFormat: application/json`.
+- **Variable types:** `String`, `Boolean`, `Integer`, `Short`, `Long`, `Double`, `Date`, `Null`,
+  `Json`, `Bytes`, `File`, and `Object` with `serializationDataFormat: application/json`.
+  The engine's REST API stores any ISO 8601 date-time as a date, so a `String` holding one (such as
+  `2026-01-01T10:00:00+05:00`) comes back as a `Date`, in UTC. To keep it as text, use another format.
   `Bytes` and `File` are stored in the workflow as
   `{ "camundaType": "Bytes" | "File", "value": "<base64>", "filename", "mimeType", "encoding" }`
   and come back to workers with their original type. They live in the workflow state, so keep
@@ -285,6 +287,8 @@ the bare `application/json` content type, the only one the JS client parses.
 - **Rejected results:** if the engine refuses a `complete` outright (for example, outputs it cannot
   store), the activity is failed and the worker gets `400`. This is the same rule Fleans applies to
   its other plugins. A transient engine error returns `500`, and the worker can send `complete` again.
+  That covers an unreachable engine, `5xx`, `429`, refused credentials (`401`, `403`) and a `404` not
+  sent by the engine's API, such as from a proxy. None of these fails the activity or removes the task.
 - **Priority** comes from the `taskPriority` input (see [Task priority](#task-priority)), not
   from `camunda:taskPriority`. Process-level `camunda:taskPriority` defaults are not read.
 - **Clocks:** lock expiry uses each replica's clock, so keep replicas NTP-synced.
