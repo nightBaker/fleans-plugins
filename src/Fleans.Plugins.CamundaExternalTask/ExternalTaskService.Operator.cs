@@ -89,7 +89,7 @@ public sealed partial class ExternalTaskService
     /// <summary>
     /// Incidents are never fetched, so the fetch-time stale cleanup never sees them. Before the
     /// operator queries answer, drop the matching incidents whose activity has ended (workflow
-    /// cancelled, activity interrupted by a boundary event). Incidents are few, so one grain call each.
+    /// cancelled, activity interrupted by a boundary event). Incidents are few, so one engine call each.
     /// </summary>
     private async Task PruneStaleIncidents(ExternalTaskQueryDto query)
     {
@@ -105,7 +105,7 @@ public sealed partial class ExternalTaskService
     {
         try
         {
-            if (await Callback(task).GetVariablesIfActive(task.ActivityInstanceId, task.VariablesId) is not null)
+            if (await engine.GetActiveActivityVariables(task.WorkflowInstanceId, task.ActivityInstanceId) is not null)
                 return false;
         }
         catch (Exception ex) when (IsTransient(ex))

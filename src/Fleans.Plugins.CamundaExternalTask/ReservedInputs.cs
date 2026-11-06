@@ -1,5 +1,5 @@
 using System.Globalization;
-using Fleans.Domain.Errors;
+using Fleans.ExternalTasks.Sdk;
 
 namespace Fleans.Plugins.CamundaExternalTask;
 
@@ -29,7 +29,7 @@ public static class ReservedInputs
 
     /// <summary>
     /// The resolved input <paramref name="target"/> as a string; null when absent or null. Throws
-    /// <see cref="CustomTaskFailedActivityException"/> (code <c>400</c>) when it is longer than
+    /// <see cref="ExternalTaskFailedException"/> (code <c>400</c>) when it is longer than
     /// <see cref="MaxLength"/>, since a retry cannot make it fit the column.
     /// </summary>
     public static string? EvaluateString(IDictionary<string, object?> inputs, string target) =>
@@ -50,7 +50,7 @@ public static class ReservedInputs
     private static string? CheckLength(string target, string source, string? text)
     {
         if (text is { Length: > MaxLength })
-            throw new CustomTaskFailedActivityException("400",
+            throw new ExternalTaskFailedException("400",
                 $"{target} {source} is {text.Length} characters long; at most {MaxLength} are allowed.");
         return text;
     }

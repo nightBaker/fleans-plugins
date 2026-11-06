@@ -1,6 +1,6 @@
 name: image
 
-# Re-publishes the plugin host image of an already released version (amd64 + arm64) from its tag,
+# Re-publishes the worker image of an already released version (amd64 + arm64) from its tag,
 # without touching NuGet or the GitHub Release — e.g. to add a platform to an existing tag.
 #   gh workflow run image.yml -f version=0.9.0
 on:
@@ -33,7 +33,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push the plugin host image
+      - name: Push the worker image
         env:
           VERSION: ${{ inputs.version }}
         run: |

@@ -1,4 +1,5 @@
 using System.Data.Common;
+using Fleans.ExternalTasks.Sdk;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -12,9 +13,11 @@ namespace Fleans.Plugins.CamundaExternalTask;
 public static class CamundaExternalTaskServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the Camunda external-task plugin on a silo host: the stream handler grain (found
-    /// by Orleans assembly scanning), the external-task table and the service behind
-    /// <see cref="CamundaExternalTaskEndpoints.MapCamundaExternalTaskApi"/>.
+    /// Registers the Camunda external-task plugin in a worker process (next to
+    /// <c>AddFleansExternalTaskWorker</c>, whose engine URL and access token it shares): the handler
+    /// of <c>camunda:*</c>, the external-task table and the service behind
+    /// <see cref="CamundaExternalTaskEndpoints.MapCamundaExternalTaskApi"/>. An
+    /// <see cref="IFleansEngineClient"/> registered before this call replaces the HTTP one.
     /// </summary>
     /// <param name="configureDb">Provider for the external-task table, e.g. <c>o =&gt; o.UseNpgsql(cs)</c>.</param>
     /// <param name="configure">Behaviour switches, e.g. <c>o =&gt; o.Incidents = true</c>.</param>
@@ -29,6 +32,9 @@ public static class CamundaExternalTaskServiceCollectionExtensions
         services.AddDbContextFactory<ExternalTaskDbContext>(configureDb);
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<ExternalTaskSignal>();
+        services.AddExternalTaskHandler<CamundaExternalTaskHandler>(CamundaExternalTaskConventions.TaskTypeWildcard);
+        services.AddHttpClient(HttpFleansEngineClient.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
+        services.TryAddSingleton<IFleansEngineClient, HttpFleansEngineClient>();
         services.TryAddSingleton<ExternalTaskService>();
         services.AddHostedService<ExternalTaskSchemaInitializer>();
         return services;

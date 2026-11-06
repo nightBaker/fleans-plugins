@@ -1,4 +1,4 @@
-using Fleans.Domain.Errors;
+using Fleans.ExternalTasks.Sdk;
 
 namespace Fleans.Plugins.CamundaExternalTask.Tests;
 
@@ -35,10 +35,10 @@ public class ExternalTaskPriorityTests
     [DataRow(true)]
     public void Priority_that_is_not_a_whole_number_fails_with_code_400(object? value)
     {
-        var ex = Assert.ThrowsExactly<CustomTaskFailedActivityException>(() =>
+        var ex = Assert.ThrowsExactly<ExternalTaskFailedException>(() =>
             ExternalTaskPriority.Evaluate(Priority(value)));
 
-        Assert.AreEqual("400", ex.GetActivityErrorState().Code);
+        Assert.AreEqual("400", ex.Code);
     }
 
     private static Dictionary<string, object?> Priority(object? value) => Inputs((ExternalTaskPriority.InputTarget, value));

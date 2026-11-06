@@ -26,10 +26,10 @@ public class ReservedInputsTests
     {
         var inputs = new Dictionary<string, object?> { [ReservedInputs.BusinessKey] = new string('x', ReservedInputs.MaxLength + 1) };
 
-        var ex = Assert.ThrowsExactly<Fleans.Domain.Errors.CustomTaskFailedActivityException>(() =>
+        var ex = Assert.ThrowsExactly<Fleans.ExternalTasks.Sdk.ExternalTaskFailedException>(() =>
             ReservedInputs.EvaluateString(inputs, ReservedInputs.BusinessKey));
 
-        Assert.AreEqual("400", ex.GetActivityErrorState().Code);
+        Assert.AreEqual("400", ex.Code);
     }
 
     [TestMethod]

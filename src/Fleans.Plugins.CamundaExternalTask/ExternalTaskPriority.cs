@@ -1,5 +1,5 @@
 using System.Globalization;
-using Fleans.Domain.Errors;
+using Fleans.ExternalTasks.Sdk;
 
 namespace Fleans.Plugins.CamundaExternalTask;
 
@@ -15,7 +15,7 @@ public static class ExternalTaskPriority
 
     /// <summary>
     /// The priority from the activity's resolved inputs. Throws
-    /// <see cref="CustomTaskFailedActivityException"/> (code <c>400</c>) when it is not a whole
+    /// <see cref="ExternalTaskFailedException"/> (code <c>400</c>) when it is not a whole
     /// number (or a string of digits) — no retry can fix that, so the caller fails the activity.
     /// </summary>
     public static long Evaluate(IDictionary<string, object?> inputs)
@@ -32,7 +32,7 @@ public static class ExternalTaskPriority
             decimal m when m == decimal.Truncate(m) && m is >= long.MinValue and <= long.MaxValue => (long)m,
             // A bare BPMN literal (source="10") resolves to a string.
             string text when long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) => parsed,
-            var other => throw new CustomTaskFailedActivityException("400",
+            var other => throw new ExternalTaskFailedException("400",
                 $"Task priority evaluated to '{other ?? "null"}', which is not a whole number."),
         };
     }

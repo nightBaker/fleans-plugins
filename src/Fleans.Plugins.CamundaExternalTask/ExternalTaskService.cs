@@ -2,12 +2,9 @@ using System.Data.Common;
 using System.Dynamic;
 using System.Globalization;
 using System.Text.Json;
-using Fleans.Application.Grains;
-using Fleans.Domain.Errors;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Orleans.Runtime;
 
 namespace Fleans.Plugins.CamundaExternalTask;
 
@@ -20,12 +17,12 @@ public sealed class ExternalTaskApiException(int statusCode, string type, string
 
 /// <summary>
 /// Camunda 7 external-task semantics on top of <see cref="ExternalTaskDbContext"/> and the engine's
-/// narrow <see cref="IWorkflowInstanceCallback"/>. Locks are claimed with a conditional
+/// <see cref="IFleansEngineClient"/>. Locks are claimed with a conditional
 /// <c>UPDATE … WHERE lock is free</c>, so any number of API replicas can share one table.
 /// </summary>
 public sealed partial class ExternalTaskService(
     IDbContextFactory<ExternalTaskDbContext> dbFactory,
-    IGrainFactory grainFactory,
+    IFleansEngineClient engine,
     ExternalTaskSignal signal,
     TimeProvider timeProvider,
     IOptions<CamundaExternalTaskOptions> options,
@@ -216,7 +213,7 @@ public sealed partial class ExternalTaskService(
         ExternalTaskDbContext db, ExternalTaskEntity candidate, FetchExternalTaskTopicDto topic,
         string workerId, CancellationToken ct)
     {
-        var claimNow = UtcNow(); // fresh per claim: earlier grain calls may have taken a while
+        var claimNow = UtcNow(); // fresh per claim: earlier engine calls may have taken a while
         var expires = AddMilliseconds(claimNow, topic.LockDuration, "lockDuration");
         var claimed = await db.ExternalTasks
             .Where(t => t.Id == candidate.Id && (t.LockExpirationTime == null || t.LockExpirationTime <= claimNow))
@@ -226,10 +223,9 @@ public sealed partial class ExternalTaskService(
                 .SetProperty(t => t.ReportingUntil, (DateTime?)null), ct);
         if (claimed == 0) return null; // another worker won the race
 
-        var callback = grainFactory.GetGrain<IWorkflowInstanceCallback>(candidate.WorkflowInstanceId);
         try
         {
-            var variables = await callback.GetVariablesIfActive(candidate.ActivityInstanceId, candidate.VariablesId);
+            var variables = await engine.GetActiveActivityVariables(candidate.WorkflowInstanceId, candidate.ActivityInstanceId);
             if (variables is null)
             {
                 // The activity ended without a worker (cancelled, interrupted by a boundary event, …).
@@ -256,7 +252,7 @@ public sealed partial class ExternalTaskService(
             LogClaimFailed(ex, candidate.Id, candidate.TopicName);
             try
             {
-                await callback.FailActivity(candidate.ActivityId, candidate.ActivityInstanceId, ex);
+                await FailActivity(candidate, ex);
                 await Delete(candidate.Id);
             }
             catch (Exception failEx)
@@ -358,7 +354,7 @@ public sealed partial class ExternalTaskService(
     public async Task<BinaryContent> GetBinaryVariable(string executionId, string name)
     {
         var task = await Load(executionId);
-        var variables = await Callback(task).GetVariablesIfActive(task.ActivityInstanceId, task.VariablesId)
+        var variables = await engine.GetActiveActivityVariables(task.WorkflowInstanceId, task.ActivityInstanceId)
             ?? throw NotFound(executionId);
         var all = (IDictionary<string, object?>)variables;
         var locals = ResolveInputs(task, all, includeExtensionProperties: false, out _);
@@ -379,7 +375,7 @@ public sealed partial class ExternalTaskService(
         var task = await ClaimForReport(id, RequireWorkerId(request.WorkerId), "completed");
 
         await Report(task, failActivityOnRejection: true, () =>
-            Callback(task).CompleteActivity(task.ActivityId, task.ActivityInstanceId,
+            engine.CompleteActivity(task.WorkflowInstanceId, task.ActivityId, task.ActivityInstanceId,
                 ToResult(variables, localVariables)));
         LogCompleted(id, task.TopicName, task.WorkerId);
     }
@@ -448,9 +444,8 @@ public sealed partial class ExternalTaskService(
         // failActivityOnRejection: if the engine refuses the variables outright, a retry would be
         // refused the same way — fail the activity instead of looping on 500s.
         await Report(task, failActivityOnRejection: true, () =>
-            Callback(task).FailActivity(task.ActivityId, task.ActivityInstanceId,
-                new CustomTaskFailedActivityException(request.ErrorCode, request.ErrorMessage ?? request.ErrorCode),
-                variables));
+            engine.FailActivity(task.WorkflowInstanceId, task.ActivityId, task.ActivityInstanceId,
+                request.ErrorCode, request.ErrorMessage ?? request.ErrorCode, variables));
         LogBpmnError(id, task.TopicName, request.ErrorCode);
     }
 
@@ -537,8 +532,8 @@ public sealed partial class ExternalTaskService(
         if (!string.IsNullOrEmpty(errorDetails))
             message += Environment.NewLine + errorDetails;
         await Report(task, failActivityOnRejection: false, () =>
-            Callback(task).FailActivity(task.ActivityId, task.ActivityInstanceId,
-                new CustomTaskFailedActivityException(RetriesExhaustedErrorCode, message)));
+            engine.FailActivity(task.WorkflowInstanceId, task.ActivityId, task.ActivityInstanceId,
+                RetriesExhaustedErrorCode, message));
         LogFailedNoRetries(task.Id, task.TopicName);
     }
 
@@ -571,7 +566,7 @@ public sealed partial class ExternalTaskService(
         ExpandoObject? active;
         try
         {
-            active = await Callback(task).GetVariablesIfActive(task.ActivityInstanceId, task.VariablesId);
+            active = await engine.GetActiveActivityVariables(task.WorkflowInstanceId, task.ActivityInstanceId);
         }
         catch
         {
@@ -591,7 +586,7 @@ public sealed partial class ExternalTaskService(
     /// Writes a claimed report into the workflow and deletes the task. A transient engine failure
     /// releases the report so the worker can send it again. When the engine rejects a completion
     /// outright (e.g. outputs it cannot store), the activity is failed — as
-    /// <c>CustomTaskHandlerBase</c> does — instead of handing the task to another worker later.
+    /// a handler failure does — instead of handing the task to another worker later.
     /// </summary>
     private async Task Report(ExternalTaskEntity task, bool failActivityOnRejection, Func<Task> writeToWorkflow)
     {
@@ -604,7 +599,7 @@ public sealed partial class ExternalTaskService(
             LogReportRejected(ex, task.Id, task.TopicName);
             try
             {
-                await Callback(task).FailActivity(task.ActivityId, task.ActivityInstanceId, ex);
+                await FailActivity(task, ex);
             }
             catch
             {
@@ -684,8 +679,9 @@ public sealed partial class ExternalTaskService(
         await db.ExternalTasks.Where(t => t.Id == id).ExecuteDeleteAsync();
     }
 
-    private IWorkflowInstanceCallback Callback(ExternalTaskEntity task) =>
-        grainFactory.GetGrain<IWorkflowInstanceCallback>(task.WorkflowInstanceId);
+    /// <summary>Fails the activity for an error no retry can fix, with code 500 like any handler bug.</summary>
+    private Task FailActivity(ExternalTaskEntity task, Exception ex) =>
+        engine.FailActivity(task.WorkflowInstanceId, task.ActivityId, task.ActivityInstanceId, "500", ex.Message);
 
     private DateTime UtcNow() => timeProvider.GetUtcNow().UtcDateTime;
 
@@ -694,8 +690,8 @@ public sealed partial class ExternalTaskService(
             ? now.AddMilliseconds(milliseconds)
             : throw BadRequest($"{name} is too large.");
 
-    /// <summary>Same split as <c>CustomTaskHandlerBase</c>: infrastructure failures a retry can fix.</summary>
-    private static bool IsTransient(Exception ex) => ex is TimeoutException or OrleansException;
+    /// <summary>Infrastructure failures a retry can fix.</summary>
+    private static bool IsTransient(Exception ex) => ex is TimeoutException or EngineUnavailableException;
 
     private static Dictionary<string, object?> ToFleans(Dictionary<string, VariableValueDto>? variables)
     {

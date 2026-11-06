@@ -9,8 +9,8 @@ public static class CamundaExternalTaskConventions
 {
     public const string TaskTypePrefix = "camunda:";
 
-    /// <summary>Matches <c>WorkflowEventStreams.GetExecuteCustomTaskNamespace("camunda:&lt;topic&gt;")</c>.</summary>
-    public const string StreamNamespacePattern = @"^events\.ExecuteCustomTaskEvent\.camunda:.+$";
+    /// <summary>The worker subscription that receives every topic.</summary>
+    public const string TaskTypeWildcard = "camunda:*";
 
     public static string TaskTypeFor(string topic) => TaskTypePrefix + topic;
 
