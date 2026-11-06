@@ -1,9 +1,7 @@
 using System.Dynamic;
-using Fleans.Domain.Errors;
-using Fleans.Worker.CustomTasks;
+using Fleans.ExternalTasks.Sdk;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
-using NSubstitute;
 
 namespace Fleans.Plugins.RestCaller.Tests;
 
@@ -12,10 +10,9 @@ public class RestCallerHandlerTests
 {
     private static RestCallerHandler MakeHandler(HttpMessageHandler messageHandler) =>
         new(new HttpClient(messageHandler) { Timeout = Timeout.InfiniteTimeSpan },
-            NullLogger<RestCallerHandler>.Instance,
-            Substitute.For<IGrainFactory>());
+            NullLogger<RestCallerHandler>.Instance);
 
-    private static CustomTaskExecutionContext Ctx(Guid? activityInstance = null) =>
+    private static ExternalTaskContext Ctx(Guid? activityInstance = null) =>
         new(WorkflowInstanceId: Guid.NewGuid(),
             WorkflowId: "wf",
             ProcessDefinitionId: null,
@@ -194,9 +191,9 @@ public class RestCallerHandlerTests
         });
 
         var handler = MakeHandler(new HttpClientHandler());
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(Inputs($"{mock.BaseUrl}/x"), new ExpandoObject(), Ctx()));
-        Assert.AreEqual("404", ex.GetActivityErrorState().Code);
+        Assert.AreEqual("404", ex.Code);
     }
 
     // --- failure codes ---
@@ -205,20 +202,20 @@ public class RestCallerHandlerTests
     public async Task NetworkError_FailsWith502()
     {
         var handler = MakeHandler(new ThrowingHandler(new HttpRequestException("connection refused")));
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(Inputs("http://nonexistent.invalid/"), new ExpandoObject(), Ctx()));
-        Assert.AreEqual("502", ex.GetActivityErrorState().Code);
+        Assert.AreEqual("502", ex.Code);
     }
 
     [TestMethod]
     public async Task Timeout_FailsWith504()
     {
         var handler = MakeHandler(new SlowHandler(TimeSpan.FromSeconds(5)));
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(
                 Inputs("http://example.com/", timeoutSec: 1),
                 new ExpandoObject(), Ctx()));
-        Assert.AreEqual("504", ex.GetActivityErrorState().Code);
+        Assert.AreEqual("504", ex.Code);
     }
 
     [TestMethod]
@@ -227,11 +224,11 @@ public class RestCallerHandlerTests
         // Headers arrive at once, the body stalls past timeoutSec. A cancelled socket read surfaces
         // as IOException (wrapped in HttpRequestException), not OperationCanceledException.
         var handler = MakeHandler(new StalledBodyHandler());
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(
                 Inputs("http://example.com/", timeoutSec: 1),
                 new ExpandoObject(), Ctx()));
-        Assert.AreEqual("504", ex.GetActivityErrorState().Code);
+        Assert.AreEqual("504", ex.Code);
     }
 
     [TestMethod]
@@ -250,27 +247,27 @@ public class RestCallerHandlerTests
     public async Task BadUrl_FailsWith400()
     {
         var handler = MakeHandler(new HttpClientHandler());
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(Inputs("not a url"), new ExpandoObject(), Ctx()));
-        Assert.AreEqual("400", ex.GetActivityErrorState().Code);
+        Assert.AreEqual("400", ex.Code);
     }
 
     [TestMethod]
     public async Task UnsupportedMethod_FailsWith400()
     {
         var handler = MakeHandler(new HttpClientHandler());
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(Inputs("http://example.com/", method: "TRACE"), new ExpandoObject(), Ctx()));
-        Assert.AreEqual("400", ex.GetActivityErrorState().Code);
+        Assert.AreEqual("400", ex.Code);
     }
 
     [TestMethod]
     public async Task TimeoutOutOfRange_FailsWith400()
     {
         var handler = MakeHandler(new HttpClientHandler());
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(Inputs("http://example.com/", timeoutSec: 0), new ExpandoObject(), Ctx()));
-        Assert.AreEqual("400", ex.GetActivityErrorState().Code);
+        Assert.AreEqual("400", ex.Code);
     }
 
     // --- Header validation (CRLF + RFC 7230 token grammar) ---
@@ -283,10 +280,10 @@ public class RestCallerHandlerTests
         {
             ["X-Test"] = "value\r\nHost: evil.example.com"
         };
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(
                 Inputs("http://example.com/", headers: headers), new ExpandoObject(), Ctx()));
-        var state = ex.GetActivityErrorState();
+        var state = ex;
         Assert.AreEqual("400", state.Code);
         Assert.IsTrue(state.Message.Contains("CR or LF"),
             $"Expected CR/LF rejection message, got: {state.Message}");
@@ -300,10 +297,10 @@ public class RestCallerHandlerTests
         {
             ["X-Bad\r\nInjected"] = "value"
         };
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(
                 Inputs("http://example.com/", headers: headers), new ExpandoObject(), Ctx()));
-        Assert.AreEqual("400", ex.GetActivityErrorState().Code);
+        Assert.AreEqual("400", ex.Code);
     }
 
     [TestMethod]
@@ -315,10 +312,10 @@ public class RestCallerHandlerTests
         {
             ["X-Has Space"] = "v"
         };
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(
                 Inputs("http://example.com/", headers: headers), new ExpandoObject(), Ctx()));
-        var state = ex.GetActivityErrorState();
+        var state = ex;
         Assert.AreEqual("400", state.Code);
         Assert.IsTrue(state.Message.Contains("invalid character"),
             $"Expected token-grammar rejection, got: {state.Message}");
@@ -356,11 +353,11 @@ public class RestCallerHandlerTests
         {
             ["Content-Type"] = "application/json\r\nX-Injected: 1"
         };
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(
                 Inputs("http://example.com/", method: "POST", headers: headers, body: "{}"),
                 new ExpandoObject(), Ctx()));
-        var state = ex.GetActivityErrorState();
+        var state = ex;
         Assert.AreEqual("400", state.Code);
         Assert.IsTrue(state.Message.Contains("CR or LF"),
             $"Expected CR/LF rejection message, got: {state.Message}");
@@ -374,11 +371,11 @@ public class RestCallerHandlerTests
         {
             ["Content-Type"] = "not a media type"
         };
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(
                 Inputs("http://example.com/", method: "POST", headers: headers, body: "{}"),
                 new ExpandoObject(), Ctx()));
-        Assert.AreEqual("400", ex.GetActivityErrorState().Code);
+        Assert.AreEqual("400", ex.Code);
     }
 
     // --- Response body cap ---
@@ -390,8 +387,7 @@ public class RestCallerHandlerTests
                 Timeout = Timeout.InfiniteTimeSpan,
                 MaxResponseContentBufferSize = RestCallerServiceCollectionExtensions.DefaultMaxResponseContentBufferSize
             },
-            NullLogger<RestCallerHandler>.Instance,
-            Substitute.For<IGrainFactory>());
+            NullLogger<RestCallerHandler>.Instance);
 
     private sealed class FixedBodyHandler(byte[] payload, bool declareLength = true,
         System.Net.HttpStatusCode status = System.Net.HttpStatusCode.OK) : HttpMessageHandler
@@ -435,10 +431,10 @@ public class RestCallerHandlerTests
         var oversized = new byte[RestCallerServiceCollectionExtensions.DefaultMaxResponseContentBufferSize + 1];
         var handler = MakeCappedHandler(new FixedBodyHandler(oversized));
 
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(Inputs("http://example.com/"), new ExpandoObject(), Ctx()));
 
-        Assert.AreEqual("502", ex.GetActivityErrorState().Code);
+        Assert.AreEqual("502", ex.Code);
     }
 
     [TestMethod]
@@ -447,10 +443,10 @@ public class RestCallerHandlerTests
         var oversized = new byte[RestCallerServiceCollectionExtensions.DefaultMaxResponseContentBufferSize + 1];
         var handler = MakeCappedHandler(new FixedBodyHandler(oversized, declareLength: false));
 
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(Inputs("http://example.com/"), new ExpandoObject(), Ctx()));
 
-        Assert.AreEqual("502", ex.GetActivityErrorState().Code);
+        Assert.AreEqual("502", ex.Code);
     }
 
     [TestMethod]
@@ -458,10 +454,10 @@ public class RestCallerHandlerTests
     {
         var handler = MakeCappedHandler(new FixedBodyHandler(new byte[101]));
 
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(Inputs("http://example.com/", maxResponseBytes: 100), new ExpandoObject(), Ctx()));
 
-        var state = ex.GetActivityErrorState();
+        var state = ex;
         Assert.AreEqual("502", state.Code);
         Assert.Contains("exceeds limit of 100 bytes", state.Message);
     }
@@ -471,10 +467,10 @@ public class RestCallerHandlerTests
     {
         var handler = MakeCappedHandler(new FixedBodyHandler(new byte[101], declareLength: false));
 
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(Inputs("http://example.com/", maxResponseBytes: 100), new ExpandoObject(), Ctx()));
 
-        var state = ex.GetActivityErrorState();
+        var state = ex;
         Assert.AreEqual("502", state.Code);
         Assert.Contains("exceeds limit of 100 bytes", state.Message);
     }
@@ -499,11 +495,11 @@ public class RestCallerHandlerTests
         var oversized = new byte[RestCallerServiceCollectionExtensions.DefaultMaxResponseContentBufferSize + 1];
         var handler = MakeCappedHandler(new FixedBodyHandler(oversized, declareLength: false));
 
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(Inputs("http://example.com/", maxResponseBytes: int.MaxValue),
                 new ExpandoObject(), Ctx()));
 
-        Assert.AreEqual("502", ex.GetActivityErrorState().Code);
+        Assert.AreEqual("502", ex.Code);
     }
 
     [TestMethod]
@@ -517,8 +513,7 @@ public class RestCallerHandlerTests
                 Timeout = Timeout.InfiniteTimeSpan,
                 MaxResponseContentBufferSize = 16L * 1024 * 1024
             },
-            NullLogger<RestCallerHandler>.Instance,
-            Substitute.For<IGrainFactory>());
+            NullLogger<RestCallerHandler>.Instance);
 
         var result = await handler.ExecuteForTest(Inputs("http://example.com/"), new ExpandoObject(), Ctx());
 
@@ -530,10 +525,10 @@ public class RestCallerHandlerTests
     {
         var handler = MakeCappedHandler(new FixedBodyHandler([]));
 
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(Inputs("http://example.com/", maxResponseBytes: 0), new ExpandoObject(), Ctx()));
 
-        Assert.AreEqual("400", ex.GetActivityErrorState().Code);
+        Assert.AreEqual("400", ex.Code);
     }
 
     [TestMethod]
@@ -570,10 +565,10 @@ public class RestCallerHandlerTests
         // error event keyed on that code fires — not with the cap's "502".
         var handler = MakeCappedHandler(new FixedBodyHandler(new byte[1024], status: System.Net.HttpStatusCode.NotFound));
 
-        var ex = await Assert.ThrowsExactlyAsync<CustomTaskFailedActivityException>(() =>
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
             handler.ExecuteForTest(Inputs("http://example.com/", maxResponseBytes: 256), new ExpandoObject(), Ctx()));
 
-        var state = ex.GetActivityErrorState();
+        var state = ex;
         Assert.AreEqual("404", state.Code);
         Assert.Contains("exceeds limit of 256 bytes", state.Message);
     }
@@ -689,35 +684,14 @@ public class RestCallerHandlerTests
     }
 }
 
-/// <summary>
-/// Test seam exposing the protected <c>ExecuteAsync</c> for direct invocation.
-/// Mirrors the pattern other plugin-author tests will use.
-/// </summary>
+/// <summary>Short form of <c>ExecuteAsync</c> with a default token.</summary>
 internal static class RestCallerHandlerTestExtensions
 {
     public static Task<IDictionary<string, object?>> ExecuteForTest(
         this RestCallerHandler handler,
         IDictionary<string, object?> resolvedInputs,
         ExpandoObject variables,
-        CustomTaskExecutionContext context,
+        ExternalTaskContext context,
         CancellationToken ct = default)
-        => RestCallerHandlerTestSeam.Invoke(handler, resolvedInputs, variables, context, ct);
-}
-
-/// <summary>
-/// Reflection-free test seam — re-declared as a sibling to access the protected ExecuteAsync.
-/// (Kept inside this assembly so we don't expose a test-only API on the production handler.)
-/// </summary>
-file static class RestCallerHandlerTestSeam
-{
-    public static Task<IDictionary<string, object?>> Invoke(
-        RestCallerHandler handler, IDictionary<string, object?> inputs, ExpandoObject variables,
-        CustomTaskExecutionContext context, CancellationToken ct)
-    {
-        // Use reflection: protected method, can't reach across assembly boundaries cleanly.
-        var method = typeof(RestCallerHandler).GetMethod("ExecuteAsync",
-            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("RestCallerHandler.ExecuteAsync not found");
-        return (Task<IDictionary<string, object?>>)method.Invoke(handler, new object[] { inputs, variables, context, ct })!;
-    }
+        => handler.ExecuteAsync(resolvedInputs, variables, context, ct);
 }

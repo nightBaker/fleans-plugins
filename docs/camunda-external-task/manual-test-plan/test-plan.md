@@ -2,23 +2,23 @@
 
 Checks that an existing Camunda 7 worker built on the official `camunda-external-task-client-js`
 runs against Fleans with only `baseUrl` changed. The stack is a real Fleans engine plus this
-repo's plugin host.
+repo's worker.
 
 Automated coverage (not repeated here): `tests/Fleans.Plugins.CamundaExternalTask.Tests`.
 - REST wire format: JSON shapes, exact `application/json`, status codes, lock expiry and handover, retries, queries.
-- Stream handler in an Orleans test cluster with a fake engine grain.
+- The `camunda:*` handler against a fake engine client.
 - A PostgreSQL variant runs with `FLEANS_PG_TESTS=1`.
 
 ## Prereqs
 
 - A checkout of [nightBaker/fleans](https://github.com/nightBaker/fleans) at the release this repo targets (`FleansVersion` in `Directory.Build.props`), plus Docker and Node 18+.
-- From fleans' `src/Fleans/`, start the engine with this repo's host attached:
+- From fleans' `src/Fleans/`, start the engine: `dotnet run --project Fleans.Aspire`. Its API is at `https://localhost:7140`.
+- From this repo, start the worker pointed at that API:
   ```bash
-  FLEANS_PLUGIN_HOST_PROJECT=/abs/path/fleans-plugins/src/Fleans.Plugins.Host/Fleans.Plugins.Host.csproj \
-    dotnet run --project Fleans.Aspire
+  Fleans__ExternalTaskWorker__EngineUrl=https://localhost:7140 \
+    dotnet run --project src/Fleans.Plugins.Host
   ```
-  The host runs with `appsettings.Development.json` (a SQLite file) and listens on `http://localhost:5180`.
-  The engine API is at `https://localhost:7140`.
+  It runs with `appsettings.Development.json` (a SQLite file) and listens on `http://localhost:5180`.
 - In this folder, run `npm i camunda-external-task-client-js@3`.
 - Deploy `camunda-charge.bpmn` (`POST https://localhost:7140/Definitions/deploy` with `{"BpmnXml":"…"}`, or the Web UI).
 
@@ -50,7 +50,7 @@ Cancel a started instance from the Web UI before running a worker. Then `MODE=co
 Start the instance with a business id:
 `POST https://localhost:7140/Execution/start` `{"WorkflowId":"camunda-charge","Variables":{"amount":42},"BusinessId":"order-1001"}`.
 Then `MODE=complete node worker.js`. Expect: the worker logs `businessKey = order-1001`. This checks the
-engine side of the contract (the engine fills `ExecuteCustomTaskEvent.BusinessId`), which the stream-handler
+engine side of the contract (the engine sends the instance's business id with the task), which the handler
 tests only simulate.
 
-Last run: 2026-10-12, scenarios A–C passed against fleans `main` (released as 0.6.0) with `camunda-external-task-client-js` 3.1.0.
+STATUS: last run 2026-11-06 on the gRPC worker (nightBaker/fleans#1013), against the engine branch: scenarios A, B and E passed with `camunda-external-task-client-js` 3; scenario C passed at the REST level (`POST /external-task/{id}/failure` with no retries). D not run.

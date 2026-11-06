@@ -2,9 +2,7 @@ using System.Diagnostics;
 using System.Dynamic;
 using System.Net.Http.Headers;
 using System.Text;
-using Fleans.Application.Abstractions.Events;
-using Fleans.Domain.Errors;
-using Fleans.Worker.CustomTasks;
+using Fleans.ExternalTasks.Sdk;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
@@ -13,23 +11,10 @@ namespace Fleans.Plugins.RestCaller;
 /// <summary>
 /// Backs <c>&lt;serviceTask type="rest-call"&gt;</c>. Issues an HTTP request per the
 /// resolved input parameters; populates <c>__response</c> with status / statusCode / ok /
-/// body / headers; throws a typed <see cref="CustomTaskFailedActivityException"/> on
+/// body / headers; throws a typed <see cref="ExternalTaskFailedException"/> on
 /// non-success per the v2 design's failure-code mapping.
-///
-/// <c>[ImplicitStreamSubscription]</c> carries the per-<c>TaskType</c> namespace literal
-/// (<c>events.ExecuteCustomTaskEvent.rest-call</c>) — attribute arguments must be
-/// compile-time constants, so each plugin subclass declares its own string. The string
-/// MUST match <see cref="WorkflowEventStreams.GetExecuteCustomTaskNamespace"/> applied
-/// to <see cref="TaskType"/>; <c>AddCustomTaskPlugin&lt;RestCallerHandler&gt;("rest-call", …)</c>
-/// validates this at silo startup and throws on drift.
-///
-/// <c>[WorkerPlacement]</c> is intentionally NOT applied: plugin grains rely on Orleans
-/// default placement so that <c>GetCompatibleSilos</c> (assembly-loading based) is the
-/// sole isolation primitive for routing plugin handlers to the silo that actually has
-/// the plugin's DLL loaded.
 /// </summary>
-[ImplicitStreamSubscription("events.ExecuteCustomTaskEvent.rest-call")]
-public sealed partial class RestCallerHandler : CustomTaskHandlerBase
+public sealed partial class RestCallerHandler : ExternalTaskHandler
 {
     private static readonly HashSet<string> AllowedMethods = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -50,50 +35,47 @@ public sealed partial class RestCallerHandler : CustomTaskHandlerBase
     private readonly HttpClient _http;
     private readonly ILogger<RestCallerHandler> _logger;
 
-    public RestCallerHandler(HttpClient http, ILogger<RestCallerHandler> logger, IGrainFactory grainFactory)
-        : base(logger, grainFactory)
+    public RestCallerHandler(HttpClient http, ILogger<RestCallerHandler> logger)
     {
         _http = http;
         _logger = logger;
     }
 
-    protected override string TaskType => "rest-call";
-
-    protected override async Task<IDictionary<string, object?>> ExecuteAsync(
+    public override async Task<IDictionary<string, object?>> ExecuteAsync(
         IDictionary<string, object?> resolvedInputs,
         ExpandoObject variables,
-        CustomTaskExecutionContext context,
+        ExternalTaskContext context,
         CancellationToken cancellationToken)
     {
         var url = ReadString(resolvedInputs, "url")
-            ?? throw new CustomTaskFailedActivityException("400", "url is required");
+            ?? throw new ExternalTaskFailedException("400", "url is required");
         var method = (ReadString(resolvedInputs, "method") ?? "GET").ToUpperInvariant();
         if (!AllowedMethods.Contains(method))
-            throw new CustomTaskFailedActivityException("400", $"unsupported method '{method}'");
+            throw new ExternalTaskFailedException("400", $"unsupported method '{method}'");
 
         Uri uri;
         try { uri = new Uri(url); }
         catch (UriFormatException ex)
         {
-            throw new CustomTaskFailedActivityException("400", $"invalid url '{url}': {ex.Message}");
+            throw new ExternalTaskFailedException("400", $"invalid url '{url}': {ex.Message}");
         }
 
         var timeoutSec = ReadInteger(resolvedInputs, "timeoutSec")
-            ?? throw new CustomTaskFailedActivityException("400", "timeoutSec is required");
+            ?? throw new ExternalTaskFailedException("400", "timeoutSec is required");
         if (timeoutSec is < 1 or > 300)
-            throw new CustomTaskFailedActivityException("400", $"timeoutSec must be in [1, 300]; got {timeoutSec}");
+            throw new ExternalTaskFailedException("400", $"timeoutSec must be in [1, 300]; got {timeoutSec}");
 
         var headers = ReadMap(resolvedInputs, "headers");
         var body = ReadString(resolvedInputs, "body");
         var successCodes = ReadIntegerList(resolvedInputs, "successCodes");
         var idempotencyKeyHeader = ReadString(resolvedInputs, "idempotencyKeyHeader");
 
-        // Per-task body cap may only LOWER the silo ceiling (the typed client's
+        // Per-task body cap may only LOWER the worker ceiling (the typed client's
         // MaxResponseContentBufferSize, 8 MiB unless the host overrides it) — never raise it.
         var ceiling = _http.MaxResponseContentBufferSize;
         var requestedMax = ReadInteger(resolvedInputs, "maxResponseBytes");
         if (requestedMax is < 1)
-            throw new CustomTaskFailedActivityException("400", $"maxResponseBytes must be >= 1; got {requestedMax}");
+            throw new ExternalTaskFailedException("400", $"maxResponseBytes must be >= 1; got {requestedMax}");
         var maxResponseBytes = requestedMax is { } m ? Math.Min(m, ceiling) : ceiling;
 
         // Idempotency-key opt-in. Plugin's value wins on collision with user-supplied headers.
@@ -121,7 +103,7 @@ public sealed partial class RestCallerHandler : CustomTaskHandlerBase
             }
             catch (FormatException)
             {
-                throw new CustomTaskFailedActivityException("400",
+                throw new ExternalTaskFailedException("400",
                     $"header 'Content-Type' value '{contentType}' is not a valid media type");
             }
         }
@@ -175,12 +157,12 @@ public sealed partial class RestCallerHandler : CustomTaskHandlerBase
         catch (Exception ex) when (IsTransportOrCancel(ex) && timeoutCts.IsCancellationRequested)
         {
             LogTimeout(method, uri.ToString(), timeoutSec, stopwatch.ElapsedMilliseconds);
-            throw new CustomTaskFailedActivityException("504", $"timeout after {timeoutSec}s calling {uri}");
+            throw new ExternalTaskFailedException("504", $"timeout after {timeoutSec}s calling {uri}");
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException)
         {
             LogNetworkError(ex, method, uri.ToString(), stopwatch.ElapsedMilliseconds);
-            throw new CustomTaskFailedActivityException("502", $"network error calling {uri}: {ex.Message}");
+            throw new ExternalTaskFailedException("502", $"network error calling {uri}: {ex.Message}");
         }
     }
 
@@ -207,7 +189,7 @@ public sealed partial class RestCallerHandler : CustomTaskHandlerBase
             LogResponseTooLarge(method, uri.ToString(), statusCode, content.Headers.ContentLength ?? maxBytes + 1, maxBytes);
             var message = $"response body from {uri} exceeds limit of {maxBytes} bytes";
             if (isSuccess)
-                throw new CustomTaskFailedActivityException("502", message);
+                throw new ExternalTaskFailedException("502", message);
             return $"({message})";
         }
         return await content.ReadAsStringAsync(ct);
@@ -241,7 +223,7 @@ public sealed partial class RestCallerHandler : CustomTaskHandlerBase
             var truncated = rawBody.Length <= FailureBodyTruncate
                 ? rawBody
                 : rawBody[..FailureBodyTruncate] + "…";
-            throw new CustomTaskFailedActivityException(statusCode.ToString(),
+            throw new ExternalTaskFailedException(statusCode.ToString(),
                 $"HTTP {statusCode} from {uri}: {truncated}");
         }
 
@@ -271,7 +253,7 @@ public sealed partial class RestCallerHandler : CustomTaskHandlerBase
     /// <summary>
     /// Rejects header names/values that contain CR or LF. Modern .NET handlers strip
     /// these at send time and raise HttpRequestException, but rejecting here makes
-    /// the failure deterministic and produces a 400 CustomTaskFailedActivityException
+    /// the failure deterministic and produces a 400 ExternalTaskFailedException
     /// instead of a 502 network error wrapper. Header names additionally must conform
     /// to RFC 7230 token grammar — `TryAddWithoutValidation` lets through bytes that
     /// silently break the upstream parser; reject up-front so workflow authors get a
@@ -280,10 +262,10 @@ public sealed partial class RestCallerHandler : CustomTaskHandlerBase
     private static void ValidateHeader(string name, string value)
     {
         if (string.IsNullOrEmpty(name))
-            throw new CustomTaskFailedActivityException("400", "header name cannot be empty");
+            throw new ExternalTaskFailedException("400", "header name cannot be empty");
 
         if (ContainsCrOrLf(name))
-            throw new CustomTaskFailedActivityException("400",
+            throw new ExternalTaskFailedException("400",
                 $"header name '{name}' contains CR or LF");
 
         foreach (var c in name)
@@ -296,13 +278,13 @@ public sealed partial class RestCallerHandler : CustomTaskHandlerBase
                   || c is '!' or '#' or '$' or '%' or '&' or '\'' or '*' or '+' or '-'
                        or '.' or '^' or '_' or '`' or '|' or '~';
             if (!ok)
-                throw new CustomTaskFailedActivityException("400",
+                throw new ExternalTaskFailedException("400",
                     $"header name '{name}' contains invalid character '{c}' " +
                     "(RFC 7230 token grammar required)");
         }
 
         if (ContainsCrOrLf(value))
-            throw new CustomTaskFailedActivityException("400",
+            throw new ExternalTaskFailedException("400",
                 $"header '{name}' value contains CR or LF");
     }
 
@@ -323,7 +305,7 @@ public sealed partial class RestCallerHandler : CustomTaskHandlerBase
         try { return Convert.ToInt32(v); }
         catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
         {
-            throw new CustomTaskFailedActivityException("400",
+            throw new ExternalTaskFailedException("400",
                 $"input '{key}' must be an integer; got {v} ({v.GetType().Name})");
         }
     }
@@ -340,13 +322,13 @@ public sealed partial class RestCallerHandler : CustomTaskHandlerBase
                 try { result.Add(Convert.ToInt32(item)); }
                 catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
                 {
-                    throw new CustomTaskFailedActivityException("400",
+                    throw new ExternalTaskFailedException("400",
                         $"input '{key}' must be a list of integers; got entry {item} ({item.GetType().Name})");
                 }
             }
             return result;
         }
-        throw new CustomTaskFailedActivityException("400",
+        throw new ExternalTaskFailedException("400",
             $"input '{key}' must be a list of integers; got {v.GetType().Name}");
     }
 
@@ -367,7 +349,7 @@ public sealed partial class RestCallerHandler : CustomTaskHandlerBase
             return map;
         }
 
-        throw new CustomTaskFailedActivityException("400",
+        throw new ExternalTaskFailedException("400",
             $"input '{key}' must be a map of strings; got {v.GetType().Name}");
     }
 

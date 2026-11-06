@@ -1,7 +1,6 @@
 using System.Dynamic;
-using Fleans.Worker.CustomTasks;
+using Fleans.ExternalTasks.Sdk;
 using Microsoft.Extensions.Logging.Abstractions;
-using NSubstitute;
 
 namespace Fleans.Plugins.RestCaller.Tests;
 
@@ -10,18 +9,17 @@ namespace Fleans.Plugins.RestCaller.Tests;
 /// <see cref="CancellationToken"/> is signalled, <see cref="RestCallerHandler"/> propagates
 /// <see cref="OperationCanceledException"/> (via the linked-CTS path in
 /// <c>RestCallerHandler.cs:113-122</c>) rather than swallowing it or wrapping it in a
-/// different exception type. The base class's <c>when (_grainLifetimeCts?.IsCancellationRequested == true)</c>
-/// catch then routes the OCE to redelivery instead of FailActivity.
+/// different exception type. The SDK's worker then leaves the task for redelivery instead of
+/// reporting a failure.
 /// </summary>
 [TestClass]
 public class RestCallerHandlerCancellationTests
 {
     private static RestCallerHandler MakeHandler(HttpMessageHandler messageHandler) =>
         new(new HttpClient(messageHandler) { Timeout = Timeout.InfiniteTimeSpan },
-            NullLogger<RestCallerHandler>.Instance,
-            Substitute.For<IGrainFactory>());
+            NullLogger<RestCallerHandler>.Instance);
 
-    private static CustomTaskExecutionContext Ctx() =>
+    private static ExternalTaskContext Ctx() =>
         new(WorkflowInstanceId: Guid.NewGuid(),
             WorkflowId: "wf",
             ProcessDefinitionId: null,

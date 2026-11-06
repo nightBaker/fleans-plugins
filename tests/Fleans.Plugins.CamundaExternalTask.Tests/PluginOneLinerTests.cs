@@ -105,7 +105,7 @@ public class PluginOneLinerTests
         builder.Configuration["CamundaExternalTasks:Provider"] = "Sqlite";
         foreach (var (key, value) in settings)
             builder.Configuration[key] = value;
-        builder.Services.AddSingleton(Substitute.For<IGrainFactory>());
+        builder.Services.AddSingleton(Substitute.For<IFleansEngineClient>());
         return builder;
     }
 

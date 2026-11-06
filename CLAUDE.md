@@ -21,7 +21,9 @@ docker build -t fleans-plugins .
   `builder.Services.Add<Name>Plugin()` or `builder.Add<Name>Plugin()` when it needs configuration
   or HTTP endpoints. That call reads the plugin's own configuration section, fails fast on invalid
   settings, and maps its endpoints itself (see `CamundaExternalTaskPluginExtensions`). The host's
-  `Program.cs` holds only cluster wiring plus those lines.
+  `Program.cs` holds only `AddFleansExternalTaskWorker()` plus those lines.
+- **A plugin has no Orleans dependency.** It is an `ExternalTaskHandler` from
+  `Fleans.ExternalTasks.Sdk`, and the host is a gRPC client of the Fleans API. CI guards it.
 
 *Why:* operators deploy one container and get every plugin; anyone with their own host gets the
 same plugin from nuget.org without copying setup code. *How to apply:* a new plugin = a package
@@ -32,7 +34,8 @@ Samples (`samples/`) are not plugins: never packed (`IsPackable=false`), not add
 
 ## Conventions
 
-- `FleansVersion` in `Directory.Build.props` pins the `Fleans.Worker` package plugins compile
+- `FleansVersion` in `Directory.Build.props` pins the `Fleans.ExternalTasks.Sdk` package plugins compile
   against; bump it after each Fleans release. All plugins share one version (`VersionPrefix`).
 - Plugin code follows Fleans' conventions: `[LoggerMessage]` logging, MSTest with AAA.
+- Delivery is at-least-once: handlers are idempotent, keyed by `ExternalTaskContext.ActivityInstanceId`.
 - Docs are part of "done": update the plugin's guide and the root README in the same PR.

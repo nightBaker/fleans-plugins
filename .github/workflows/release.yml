@@ -1,7 +1,7 @@
 name: release
 
 # Push a tag v<version> (matching VersionPrefix/VersionSuffix in Directory.Build.props) to publish
-# every plugin's NuGet package to nuget.org and the plugin host image to ghcr.io, then create the
+# every plugin's NuGet package to nuget.org and the worker image to ghcr.io, then create the
 # GitHub Release. All plugins in this repo share one version.
 #
 # NuGet uses Trusted Publishing — no stored API key. The job's GitHub OIDC token is exchanged for a
@@ -43,7 +43,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push the plugin host image
+      - name: Push the worker image
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |

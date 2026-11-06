@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
-  <!-- The one ready-to-run plugin host: an Orleans silo with Fleans:Role=Plugin that joins the
-       Fleans cluster and runs every plugin in this repo. Each plugin is a NuGet package added
-       here as a reference plus one line in Program.cs. Dependency closure: Fleans.Worker (via the
-       plugins) + Orleans server packages — no engine projects. -->
+  <!-- The one ready-to-run worker: connects to the Fleans API over gRPC and runs every plugin in
+       this repo. Each plugin is a NuGet package added here as a reference plus one line in
+       Program.cs. Dependency closure: Fleans.ExternalTasks.Sdk (via the plugins) — no Orleans, no
+       engine projects (CI guards it). -->
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <ContainerRepository>fleans-plugins</ContainerRepository>
@@ -12,19 +12,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Fleans.Plugins.CamundaExternalTask\Fleans.Plugins.CamundaExternalTask.csproj" />
     <ProjectReference Include="..\Fleans.Plugins.RestCaller\Fleans.Plugins.RestCaller.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Aspire.StackExchange.Redis" Version="13.1.1" />
-    <PackageReference Include="Fleans.Streaming.Kafka" Version="$(FleansVersion)" />
-    <PackageReference Include="Microsoft.Orleans.Server" Version="10.4.0" />
-    <PackageReference Include="Microsoft.Orleans.Clustering.Redis" Version="10.4.0" />
-    <PackageReference Include="Microsoft.Orleans.Clustering.AdoNet" Version="10.4.0" />
-    <PackageReference Include="Microsoft.Orleans.Reminders.Redis" Version="10.4.0" />
-    <PackageReference Include="Microsoft.Orleans.Reminders.AdoNet" Version="10.4.0" />
-    <PackageReference Include="Microsoft.Orleans.Streaming" Version="10.4.0" />
-    <PackageReference Include="Npgsql" Version="10.0.2" />
-    <PackageReference Include="Universley.OrleansContrib.StreamsProvider.Redis" Version="2026.4.19" />
   </ItemGroup>
 
 </Project>

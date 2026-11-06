@@ -10,7 +10,7 @@ namespace Fleans.Plugins.CamundaExternalTask;
 public static class CamundaExternalTaskPluginExtensions
 {
     /// <summary>
-    /// Adds the whole Camunda external-task plugin to a plugin host in one call, configured from
+    /// Adds the whole Camunda external-task plugin to a worker process in one call, configured from
     /// <paramref name="builder"/>'s configuration:
     /// <list type="bullet">
     /// <item><c>ConnectionStrings:camunda-external-tasks</c> (required) and

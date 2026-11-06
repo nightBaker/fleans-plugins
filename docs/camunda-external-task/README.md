@@ -9,29 +9,31 @@ the Java `camunda-external-task-client`, and hand-written HTTP clients.
 > **For migration only.** This plugin is a backward-compatibility bridge for existing Camunda 7
 > workers. For new tasks, and whenever a worker gets rewritten anyway, use a native
 > [Fleans custom-task plugin](https://nightbaker.github.io/fleans/guides/writing-custom-tasks/).
-> Native plugins run inside the Fleans cluster with no polling, locks or extra database. They get
+> Native plugins get their tasks pushed over gRPC, with no polling, locks or extra database. They get
 > typed input/output mappings, appear in the plugin catalog and editor, and support the full Fleans
 > feature set rather than the Camunda subset described below.
 
-The Fleans engine has no Camunda-specific code. The plugin is a regular Fleans custom-task
-plugin that runs in its own silo:
+The Fleans engine has no Camunda-specific code. The plugin is a regular gRPC worker, subscribed to
+every `camunda:<topic>` type through the wildcard `camunda:*`. It defers each task and reports the
+outcome over the engine's REST API when a Camunda worker does:
 
 ```text
-Fleans engine ──ExecuteCustomTaskEvent (camunda:<topic>)──▶ plugin host ──▶ camunda_external_tasks table
-                                                                 ▲
-Camunda workers ──fetchAndLock / complete / failure / bpmnError──┘ (/engine-rest/external-task)
-       complete → CompleteActivity(variables)   failure(retries=0) / bpmnError → FailActivity(code)
+Fleans engine ──gRPC task (camunda:<topic>)──▶ fleans-plugins worker ──▶ camunda_external_tasks table
+      ▲                                                ▲
+      │                Camunda workers ──fetchAndLock / complete / failure / bpmnError
+      │                                 (/engine-rest/external-task)
+      └── REST: complete → /Execution/complete-activity   failure(retries=0) / bpmnError → /Execution/fail-activity
 ```
 
 | Path | What |
 |---|---|
-| `src/Fleans.Plugins.CamundaExternalTask` | The NuGet package: stream handler grain, table, REST endpoints. |
-| `src/Fleans.Plugins.Host` | The repo's plugin host (`Fleans:Role=Plugin`, every plugin) and its container image (repo-root `Dockerfile`). |
-| `tests/Fleans.Plugins.CamundaExternalTask.Tests` | REST wire-format tests (SQLite, plus PostgreSQL with `FLEANS_PG_TESTS=1`) and stream-handler tests on an Orleans test cluster. |
+| `src/Fleans.Plugins.CamundaExternalTask` | The NuGet package: the `camunda:*` handler, table, REST endpoints, engine client. |
+| `src/Fleans.Plugins.Host` | The repo's worker (every plugin) and its container image (repo-root `Dockerfile`). |
+| `tests/Fleans.Plugins.CamundaExternalTask.Tests` | REST wire-format tests (SQLite, plus PostgreSQL with `FLEANS_PG_TESTS=1`) and handler tests against a fake engine. |
 | `docs/camunda-external-task/manual-test-plan/` | End-to-end check with a real Camunda client against a real engine. |
 
-**Compatibility:** plugin 0.10.0 requires **Fleans 0.10.0 or later** (built on `Fleans.Worker` 0.10.0 and Orleans 10.4). 0.10.0 moved input/output mapping into the engine, so `ExecuteCustomTaskEvent` carries resolved inputs instead of mappings: upgrade the engine and the plugin host together. 0.8.0 added the process instance business id on `ExecuteCustomTaskEvent`, returned as `businessKey`. Run it against an engine built from the same Fleans version or newer.
-`FleansVersion` in `Directory.Build.props` pins the `Fleans.Worker` package the plugin compiles against.
+**Compatibility:** plugin 0.11.0 requires **Fleans 0.11.0 or later** (built on `Fleans.ExternalTasks.Sdk` 0.11.0, with no Orleans dependency): it needs the engine's deferred tasks, `scheme:*` wildcards and active-activity read. 0.10.0 moved input/output mapping into the engine. 0.8.0 added the process instance business id, returned as `businessKey`. Run it against an engine built from the same Fleans version or newer.
+`FleansVersion` in `Directory.Build.props` pins the `Fleans.ExternalTasks.Sdk` package the plugin compiles against.
 
 ## 1. Adapt the BPMN
 
@@ -157,18 +159,25 @@ existing table at startup.
 keep a `null` business key even when their instance has a business id, so a `businessKey`
 fetch filter does not match them. Drain or complete them first.
 
+**Upgrading from 0.10.x:** the plugin is now a gRPC worker, and the table no longer has a
+`VariablesId` column. Drain or complete waiting tasks, upgrade the engine and the worker together,
+and drop the `camunda_external_tasks` table so it is recreated at startup. Replace the cluster
+settings with `Fleans__ExternalTaskWorker__EngineUrl`.
+
 **Upgrading from 0.9.x:** the table no longer stores mappings (`InputMappingsJson` and
 `OutputMappingsJson` are replaced by `InputTargetsJson`), and an engine older than 0.10.0 cannot
-talk to this plugin. Drain or complete waiting tasks, upgrade the engine and the plugin host
+talk to this plugin. Drain or complete waiting tasks, upgrade the engine and the worker
 together, and drop the `camunda_external_tasks` table so it is recreated at startup. Without
 output mappings, everything a worker sends on `complete` now reaches the workflow scope,
 `localVariables` included; declare outputs to keep variables out of it.
 
-## 2. Run the plugin host
+## 2. Run the worker
 
-The repo's plugin host image `ghcr.io/nightbaker/fleans-plugins` includes this plugin and serves
-the API on port 8080; [Run the plugin host](../../README.md#run-the-plugin-host) has the compose
-override and the cluster settings. The plugin's own settings:
+The repo's worker image `ghcr.io/nightbaker/fleans-plugins` includes this plugin and serves
+the API on port 8080; [Run the worker](../../README.md#run-the-worker) has the compose
+override and the engine settings. The plugin reports to the engine over REST at
+`Fleans__ExternalTaskWorker__EngineUrl`, with `Fleans__ExternalTaskWorker__AccessToken` as bearer
+token when the API has authentication on. The plugin's own settings:
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -191,10 +200,12 @@ new Client({ baseUrl: url, interceptors: new BasicAuthInterceptor({ username: "d
 Basic auth sends the password in every request, so serve the host over TLS (or behind a TLS
 gateway).
 
-To add the plugin to your own plugin host, reference the `Fleans.Plugins.CamundaExternalTask`
-package and add one line; it reads the settings above and maps `/engine-rest/external-task/*`:
+To add the plugin to your own worker, reference the `Fleans.Plugins.CamundaExternalTask`
+package and add one line next to `AddFleansExternalTaskWorker()`; it reads the settings above and
+maps `/engine-rest/external-task/*`:
 
 ```csharp
+builder.Services.AddFleansExternalTaskWorker();
 builder.AddCamundaExternalTaskPlugin();
 ```
 
@@ -288,12 +299,11 @@ not be handed out, 9368 result rejected by the workflow.
 
 ```bash
 dotnet build
-dotnet test                         # SQLite + Orleans test cluster
+dotnet test                         # SQLite
 FLEANS_PG_TESTS=1 dotnet test       # + PostgreSQL via Testcontainers (Docker)
 ```
 
-To build against an unreleased Fleans, pack `Fleans.Domain.Abstractions`,
-`Fleans.Application.Abstractions` and `Fleans.Worker` from a fleans checkout
+To build against an unreleased Fleans, pack `Fleans.ExternalTasks.Sdk` from a fleans checkout
 (`dotnet pack -p:Version=<FleansVersion> -o <feed>`). Then build with
 `-p:RestoreAdditionalProjectSources=<feed>`, using a separate `NUGET_PACKAGES` folder so the
 stand-in packages don't shadow the published ones later.

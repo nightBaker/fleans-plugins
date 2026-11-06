@@ -26,7 +26,7 @@ public class BasicAuthenticationTests
         _keepAlive.Open();
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
-        builder.Services.AddSingleton(Substitute.For<IGrainFactory>());
+        builder.Services.AddSingleton(Substitute.For<IFleansEngineClient>());
         builder.Services.AddCamundaExternalTasks(o => o.UseSqlite(connectionString));
         _app = builder.Build();
         _app.MapCamundaExternalTaskApi().RequireBasicAuthentication("demo", "s3cret");

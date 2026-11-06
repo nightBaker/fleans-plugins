@@ -3,9 +3,6 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Fleans.Application.Grains;
-using Fleans.Domain.Activities;
-using Fleans.Domain.Errors;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
@@ -17,7 +14,7 @@ namespace Fleans.Plugins.CamundaExternalTask.Tests;
 
 /// <summary>
 /// The REST surface as a Camunda 7 external-task client sees it: request/response JSON shapes,
-/// status codes and error bodies. The engine is replaced by a substitute callback grain.
+/// status codes and error bodies. The engine is replaced by a substitute client.
 /// </summary>
 [TestClass]
 public class CamundaExternalTaskApiTests
@@ -28,7 +25,7 @@ public class CamundaExternalTaskApiTests
     private WebApplication _app = null!;
     private HttpClient _http = null!;
     private ManualClock _clock = null!;
-    private IWorkflowInstanceCallback _callback = null!;
+    private IFleansEngineClient _engine = null!;
     private ExpandoObject? _processVariables;
 
     /// <summary>The external-task table provider; SQLite here, PostgreSQL in the derived class.</summary>
@@ -47,16 +44,14 @@ public class CamundaExternalTaskApiTests
 
         _clock = new ManualClock(T0);
         _processVariables = Expando(("amount", 42L), ("customer", "bob"), ("vip", true));
-        _callback = Substitute.For<IWorkflowInstanceCallback>();
-        _callback.GetVariablesIfActive(Arg.Any<Guid>(), Arg.Any<Guid>())
-            .Returns<ValueTask<ExpandoObject?>>(_ => ValueTask.FromResult<ExpandoObject?>(_processVariables));
-        var grainFactory = Substitute.For<IGrainFactory>();
-        grainFactory.GetGrain<IWorkflowInstanceCallback>(Arg.Any<Guid>(), Arg.Any<string?>()).Returns(_callback);
+        _engine = Substitute.For<IFleansEngineClient>();
+        _engine.GetActiveActivityVariables(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult(_processVariables));
 
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Services.AddSingleton<TimeProvider>(_clock);
-        builder.Services.AddSingleton(grainFactory);
+        builder.Services.AddSingleton(_engine);
         builder.Services.AddCamundaExternalTasks(configureDb);
         _app = builder.Build();
         _app.MapCamundaExternalTaskApi();
@@ -166,8 +161,8 @@ public class CamundaExternalTaskApiTests
         var task = await Seed("charge-card");
         await Fetch("w1", "charge-card");
         ExpandoObject? completed = null;
-        await _callback.CompleteActivity(Arg.Any<string>(), Arg.Any<Guid>(),
-            Arg.Do<ExpandoObject>(v => completed = v));
+        await _engine.CompleteActivity(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Guid>(),
+            Arg.Do<ExpandoObject>(v => completed = v), Arg.Any<CancellationToken>());
 
         // Act
         var response = await _http.PostAsJsonAsync($"/engine-rest/external-task/{task.Id}/complete", new
@@ -193,7 +188,7 @@ public class CamundaExternalTaskApiTests
 
         // Assert
         Assert.AreEqual(HttpStatusCode.NoContent, response.StatusCode);
-        await _callback.Received(1).CompleteActivity("ct1", task.ActivityInstanceId, Arg.Any<ExpandoObject>());
+        await _engine.Received(1).CompleteActivity(task.WorkflowInstanceId, "ct1", task.ActivityInstanceId, Arg.Any<ExpandoObject>(), Arg.Any<CancellationToken>());
         var outputs = (IDictionary<string, object?>)completed!;
         Assert.IsTrue((bool)outputs["charged"]!);
         Assert.AreEqual(99.5, outputs["total"]);
@@ -231,7 +226,7 @@ public class CamundaExternalTaskApiTests
         await AssertError(missing, HttpStatusCode.NotFound, "InvalidRequestException");
         await AssertError(wrongWorker, HttpStatusCode.InternalServerError, "BadUserRequestException");
         await AssertError(unsupported, HttpStatusCode.BadRequest, "InvalidRequestException");
-        await _callback.DidNotReceive().CompleteActivity(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<ExpandoObject>());
+        await _engine.DidNotReceive().CompleteActivity(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<ExpandoObject>(), Arg.Any<CancellationToken>());
     }
 
     [TestMethod]
@@ -242,8 +237,8 @@ public class CamundaExternalTaskApiTests
         await Fetch("w1", "charge-card");
 
         ExpandoObject? reported = null;
-        await _callback.FailActivity(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Exception>(),
-            Arg.Do<ExpandoObject>(v => reported = v));
+        await _engine.FailActivity(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Do<ExpandoObject?>(v => reported = v), Arg.Any<CancellationToken>());
 
         // Act
         var response = await _http.PostAsJsonAsync($"/engine-rest/external-task/{task.Id}/bpmnError", new
@@ -256,11 +251,8 @@ public class CamundaExternalTaskApiTests
 
         // Assert
         Assert.AreEqual(HttpStatusCode.NoContent, response.StatusCode);
-        await _callback.Received(1).FailActivity("ct1", task.ActivityInstanceId,
-            Arg.Is<Exception>(e => e is ActivityException
-                && ((ActivityException)e).GetActivityErrorState().Code == "DECLINED"
-                && ((ActivityException)e).GetActivityErrorState().Message == "no funds"),
-            Arg.Any<ExpandoObject>());
+        await _engine.Received(1).FailActivity(task.WorkflowInstanceId, "ct1", task.ActivityInstanceId, "DECLINED", "no funds",
+            Arg.Any<ExpandoObject?>(), Arg.Any<CancellationToken>());
         Assert.AreEqual("insufficient", ((IDictionary<string, object?>)reported!)["declineReason"],
             "bpmnError variables reach the workflow with the failure.");
     }
@@ -283,7 +275,7 @@ public class CamundaExternalTaskApiTests
 
         await AssertError(response, HttpStatusCode.BadRequest, "InvalidRequestException");
         Assert.IsNotNull(await Row(task.Id));
-        await _callback.DidNotReceive().FailActivity(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Exception>(), Arg.Any<ExpandoObject>());
+        await _engine.DidNotReceive().FailActivity(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ExpandoObject?>(), Arg.Any<CancellationToken>());
     }
 
     [TestMethod]
@@ -306,7 +298,7 @@ public class CamundaExternalTaskApiTests
         Assert.HasCount(1, afterTimeout);
         Assert.AreEqual(2, (int)afterTimeout[0]!["retries"]!);
         Assert.AreEqual("down", (string?)afterTimeout[0]!["errorMessage"]);
-        await _callback.DidNotReceive().FailActivity(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Exception>());
+        await _engine.DidNotReceive().FailActivity(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ExpandoObject?>(), Arg.Any<CancellationToken>());
     }
 
     [TestMethod]
@@ -352,7 +344,7 @@ public class CamundaExternalTaskApiTests
         await AssertError(lateComplete, HttpStatusCode.InternalServerError, "BadUserRequestException");
         await AssertError(lateExtend, HttpStatusCode.BadRequest, "InvalidRequestException");
         Assert.AreEqual(HttpStatusCode.NoContent, ownerComplete.StatusCode);
-        await _callback.Received(1).CompleteActivity("ct1", task.ActivityInstanceId, Arg.Any<ExpandoObject>());
+        await _engine.Received(1).CompleteActivity(task.WorkflowInstanceId, "ct1", task.ActivityInstanceId, Arg.Any<ExpandoObject>(), Arg.Any<CancellationToken>());
     }
 
     [TestMethod]
@@ -361,15 +353,15 @@ public class CamundaExternalTaskApiTests
         // Arrange — the first task's variable scope is unknown to the engine (deterministic error).
         var poison = await Seed("charge-card");
         var healthy = await Seed("charge-card");
-        _callback.GetVariablesIfActive(poison.ActivityInstanceId, Arg.Any<Guid>())
-            .Returns<ValueTask<ExpandoObject?>>(_ => throw new InvalidOperationException("unknown scope"));
+        _engine.GetActiveActivityVariables(Arg.Any<Guid>(), poison.ActivityInstanceId, Arg.Any<CancellationToken>())
+            .Returns<Task<ExpandoObject?>>(_ => throw new InvalidOperationException("unknown scope"));
 
         // Act
         var tasks = await Fetch("w1", "charge-card");
 
         // Assert
         Assert.AreEqual(healthy.Id, (string?)tasks.Single()!["id"]);
-        await _callback.Received(1).FailActivity("ct1", poison.ActivityInstanceId, Arg.Any<InvalidOperationException>());
+        await _engine.Received(1).FailActivity(poison.WorkflowInstanceId, "ct1", poison.ActivityInstanceId, "500", Arg.Any<string>(), Arg.Any<ExpandoObject?>(), Arg.Any<CancellationToken>());
         Assert.IsNull(await Row(poison.Id));
     }
 
@@ -406,7 +398,7 @@ public class CamundaExternalTaskApiTests
         await Fetch("w1", "charge-card");
         var engineGate = new TaskCompletionSource();
         var entered = new TaskCompletionSource();
-        _callback.CompleteActivity(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<ExpandoObject>())
+        _engine.CompleteActivity(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<ExpandoObject>(), Arg.Any<CancellationToken>())
             .Returns(async _ => { entered.TrySetResult(); await engineGate.Task; });
         var complete = _http.PostAsJsonAsync($"/engine-rest/external-task/{task.Id}/complete", new { workerId = "w1" });
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -421,7 +413,7 @@ public class CamundaExternalTaskApiTests
         await AssertError(unlock, HttpStatusCode.InternalServerError, "BadUserRequestException");
         Assert.HasCount(0, fetchedByOther);
         Assert.AreEqual(HttpStatusCode.NoContent, completed.StatusCode);
-        await _callback.DidNotReceive().FailActivity(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Exception>());
+        await _engine.DidNotReceive().FailActivity(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ExpandoObject?>(), Arg.Any<CancellationToken>());
     }
 
     [TestMethod]
@@ -432,11 +424,11 @@ public class CamundaExternalTaskApiTests
         var transient = await Seed("charge-card");
         var poison = await Seed("charge-card");
         var healthy = await Seed("charge-card");
-        _callback.GetVariablesIfActive(transient.ActivityInstanceId, Arg.Any<Guid>())
-            .Returns<ValueTask<ExpandoObject?>>(_ => throw new TimeoutException("engine busy"));
-        _callback.GetVariablesIfActive(poison.ActivityInstanceId, Arg.Any<Guid>())
-            .Returns<ValueTask<ExpandoObject?>>(_ => throw new InvalidOperationException("unknown scope"));
-        _callback.FailActivity(Arg.Any<string>(), poison.ActivityInstanceId, Arg.Any<Exception>())
+        _engine.GetActiveActivityVariables(Arg.Any<Guid>(), transient.ActivityInstanceId, Arg.Any<CancellationToken>())
+            .Returns<Task<ExpandoObject?>>(_ => throw new TimeoutException("engine busy"));
+        _engine.GetActiveActivityVariables(Arg.Any<Guid>(), poison.ActivityInstanceId, Arg.Any<CancellationToken>())
+            .Returns<Task<ExpandoObject?>>(_ => throw new InvalidOperationException("unknown scope"));
+        _engine.FailActivity(Arg.Any<Guid>(), Arg.Any<string>(), poison.ActivityInstanceId, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ExpandoObject?>(), Arg.Any<CancellationToken>())
             .Returns<Task>(_ => throw new TimeoutException("engine busy"));
 
         // Act
@@ -459,7 +451,7 @@ public class CamundaExternalTaskApiTests
         // Arrange
         var task = await Seed("charge-card");
         await Fetch("w1", "charge-card");
-        _callback.CompleteActivity(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<ExpandoObject>())
+        _engine.CompleteActivity(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<ExpandoObject>(), Arg.Any<CancellationToken>())
             .Returns<Task>(_ => throw new InvalidOperationException("outputs cannot be stored"));
 
         // Act
@@ -467,7 +459,7 @@ public class CamundaExternalTaskApiTests
 
         // Assert — failed visibly instead of being handed to another worker after the report lock.
         await AssertError(response, HttpStatusCode.BadRequest, "InvalidRequestException");
-        await _callback.Received(1).FailActivity("ct1", task.ActivityInstanceId, Arg.Any<InvalidOperationException>());
+        await _engine.Received(1).FailActivity(task.WorkflowInstanceId, "ct1", task.ActivityInstanceId, "500", Arg.Any<string>(), Arg.Any<ExpandoObject?>(), Arg.Any<CancellationToken>());
         Assert.IsNull(await Row(task.Id));
     }
 
@@ -478,7 +470,7 @@ public class CamundaExternalTaskApiTests
         var task = await Seed("charge-card");
         await Fetch("w1", "charge-card");
         var calls = 0;
-        _callback.CompleteActivity(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<ExpandoObject>())
+        _engine.CompleteActivity(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<ExpandoObject>(), Arg.Any<CancellationToken>())
             .Returns(_ => ++calls == 1 ? Task.FromException(new TimeoutException("engine busy")) : Task.CompletedTask);
 
         // Act
@@ -488,7 +480,7 @@ public class CamundaExternalTaskApiTests
         // Assert
         Assert.AreEqual(HttpStatusCode.InternalServerError, first.StatusCode);
         Assert.AreEqual(HttpStatusCode.NoContent, second.StatusCode);
-        await _callback.DidNotReceive().FailActivity(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Exception>());
+        await _engine.DidNotReceive().FailActivity(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ExpandoObject?>(), Arg.Any<CancellationToken>());
     }
 
     [TestMethod]
@@ -504,7 +496,7 @@ public class CamundaExternalTaskApiTests
 
         // Assert — the worker learns its result was not applied.
         await AssertError(response, HttpStatusCode.NotFound, "InvalidRequestException");
-        await _callback.DidNotReceive().CompleteActivity(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<ExpandoObject>());
+        await _engine.DidNotReceive().CompleteActivity(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<ExpandoObject>(), Arg.Any<CancellationToken>());
     }
 
     [TestMethod]
@@ -869,7 +861,7 @@ public class CamundaExternalTaskApiTests
         var task = await Seed("make-invoice");
         await Fetch("w1", "make-invoice");
         ExpandoObject? completed = null;
-        await _callback.CompleteActivity(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Do<ExpandoObject>(v => completed = v));
+        await _engine.CompleteActivity(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Do<ExpandoObject>(v => completed = v), Arg.Any<CancellationToken>());
         var complete = await _http.PostAsJsonAsync($"/engine-rest/external-task/{task.Id}/complete", new
         {
             workerId = "w1",
@@ -925,7 +917,7 @@ public class CamundaExternalTaskApiTests
 
         // Assert
         Assert.AreEqual(HttpStatusCode.NoContent, failure.StatusCode);
-        await _callback.DidNotReceive().FailActivity(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Exception>());
+        await _engine.DidNotReceive().FailActivity(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ExpandoObject?>(), Arg.Any<CancellationToken>());
         Assert.HasCount(0, whileIncident, "An incident is not fetchable.");
         Assert.HasCount(1, incidents.AsArray());
         Assert.AreEqual(0, (int)incidents[0]!["retries"]!);
@@ -947,8 +939,8 @@ public class CamundaExternalTaskApiTests
 
         // Assert
         Assert.AreEqual(HttpStatusCode.NoContent, response.StatusCode);
-        await _callback.Received(1).FailActivity("ct1", task.ActivityInstanceId,
-            Arg.Is<ActivityException>(e => e.GetActivityErrorState().Code == ExternalTaskService.RetriesExhaustedErrorCode));
+        await _engine.Received(1).FailActivity(task.WorkflowInstanceId, "ct1", task.ActivityInstanceId,
+            ExternalTaskService.RetriesExhaustedErrorCode, Arg.Any<string>(), Arg.Any<ExpandoObject?>(), Arg.Any<CancellationToken>());
         Assert.IsNull(await Row(task.Id));
     }
 
@@ -963,7 +955,7 @@ public class CamundaExternalTaskApiTests
         Assert.AreEqual(HttpStatusCode.NoContent, response.StatusCode);
         Assert.AreEqual(0, (await Row(task.Id))!.Retries);
         Assert.HasCount(0, await Fetch("w1", "charge-card"));
-        await _callback.DidNotReceive().FailActivity(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Exception>());
+        await _engine.DidNotReceive().FailActivity(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ExpandoObject?>(), Arg.Any<CancellationToken>());
     }
 
     [TestMethod]
@@ -1050,7 +1042,7 @@ public class CamundaExternalTaskApiTests
         // Arrange — the engine refuses the variables outright (not a transient error).
         var task = await Seed("charge-card");
         await Fetch("w1", "charge-card");
-        _callback.FailActivity(Arg.Any<string>(), Arg.Any<Guid>(), Arg.Any<Exception>(), Arg.Any<ExpandoObject?>())
+        _engine.FailActivity(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Guid>(), "DECLINED", Arg.Any<string>(), Arg.Any<ExpandoObject?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("cannot store")));
 
         // Act
@@ -1063,7 +1055,7 @@ public class CamundaExternalTaskApiTests
 
         // Assert — no 500 loop: the activity is failed and the task is gone.
         await AssertError(response, HttpStatusCode.BadRequest, "InvalidRequestException");
-        await _callback.Received(1).FailActivity("ct1", task.ActivityInstanceId, Arg.Any<InvalidOperationException>());
+        await _engine.Received(1).FailActivity(task.WorkflowInstanceId, "ct1", task.ActivityInstanceId, "500", Arg.Any<string>(), Arg.Any<ExpandoObject?>(), Arg.Any<CancellationToken>());
         Assert.IsNull(await Row(task.Id));
     }
 
@@ -1148,7 +1140,6 @@ public class CamundaExternalTaskApiTests
             ProcessDefinitionId = "order-process:1",
             ActivityId = "ct1",
             ActivityInstanceId = activityInstanceId,
-            VariablesId = Guid.NewGuid(),
             InputTargetsJson = JsonSerializer.Serialize((inputs ?? []).Select(i => i.Target).ToList()),
             Priority = priority,
             BusinessKey = businessKey,

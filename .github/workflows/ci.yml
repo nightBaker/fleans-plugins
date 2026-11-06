@@ -14,10 +14,17 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      # Restores Fleans.Worker $(FleansVersion) from nuget.org — red until that Fleans release is published.
+      # Restores Fleans.ExternalTasks.Sdk $(FleansVersion) from nuget.org — red until that Fleans release is published.
       - run: dotnet restore
       - run: dotnet build --no-restore -c Release
-      - name: Test (SQLite + Orleans test cluster + PostgreSQL via Testcontainers)
+      # A worker takes no dependency on Orleans, directly or transitively (nightBaker/fleans#1013).
+      - name: Host has no Orleans dependency
+        run: |
+          if dotnet list src/Fleans.Plugins.Host package --include-transitive | grep -i 'orleans'; then
+            echo "::error::Fleans.Plugins.Host must not depend on Orleans"
+            exit 1
+          fi
+      - name: Test (SQLite + PostgreSQL via Testcontainers)
         env:
           FLEANS_PG_TESTS: "1"
         run: dotnet test --no-build -c Release --logger "trx;LogFileName=tests.trx"

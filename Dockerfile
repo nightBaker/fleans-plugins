@@ -1,4 +1,4 @@
-# Builds the plugin host image (every plugin in this repo), for linux/amd64 and linux/arm64:
+# Builds the worker image (every plugin in this repo, connecting to the engine over gRPC), for linux/amd64 and linux/arm64:
 #   docker build -t fleans-plugins .
 #   docker buildx build --platform linux/amd64,linux/arm64 -t fleans-plugins .
 # The SDK stage runs on the build machine's platform and cross-publishes for the target

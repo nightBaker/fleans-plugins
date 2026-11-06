@@ -16,11 +16,10 @@ public sealed class ExternalTaskEntity
     public string? ProcessDefinitionId { get; set; }
     public required string ActivityId { get; set; }
     public required Guid ActivityInstanceId { get; set; }
-    public required Guid VariablesId { get; set; }
 
     /// <summary>
     /// JSON array of the activity's input targets. The engine evaluates the inputs into the
-    /// activity's own scope (<see cref="VariablesId"/>), so their values are read from there on fetch.
+    /// activity's own scope, so their values are read from there on fetch.
     /// </summary>
     public required string InputTargetsJson { get; set; }
 

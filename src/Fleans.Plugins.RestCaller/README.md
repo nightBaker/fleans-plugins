@@ -2,12 +2,12 @@
 
 Backs `<serviceTask type="rest-call">` BPMN service tasks with an outbound HTTP request.
 Populates `__response` with `status`, `statusCode`, `ok`, `body`, and `headers`; throws a
-typed `CustomTaskFailedActivityException` on non-success per the engine's failure-code
+typed `ExternalTaskFailedException` on non-success per the engine's failure-code
 mapping.
 
 ## Minimum consumer usage
 
-In your plugin host's `Program.cs`:
+In your worker's `Program.cs`, next to `AddFleansExternalTaskWorker()`:
 
 ```csharp
 using Fleans.Plugins.RestCaller;
