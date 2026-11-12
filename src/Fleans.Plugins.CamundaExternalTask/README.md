@@ -28,5 +28,5 @@ See the [repository README](https://github.com/nightBaker/fleans-plugins/blob/ma
 for the ready-to-run worker, configuration, and differences from Camunda 7. For example, incidents
 are opt-in (`CamundaExternalTasks:Incidents = true`); otherwise `retries = 0`
 fails the activity.
-Requires Fleans 0.11.0 or later.
+Requires Fleans 0.12.0 or later.
 
