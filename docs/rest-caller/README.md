@@ -15,7 +15,7 @@ The Fleans engine images do not bundle this plugin. Run it in this repo's worker
 to your own worker with one line.
 
 **Compatibility:** built against `Fleans.ExternalTasks.Sdk` `$(FleansVersion)` from
-`Directory.Build.props` (0.12.0 at the time of writing). Run it against an engine of the same
+`Directory.Build.props` (0.13.0 at the time of writing). Run it against an engine of the same
 Fleans version or newer. 0.11.0 is the first version that runs as a gRPC worker; older engines
 need the 0.10.x plugin host.
 

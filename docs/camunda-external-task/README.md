@@ -32,7 +32,7 @@ Fleans engine ──gRPC task (camunda:<topic>)──▶ fleans-plugins worker �
 | `tests/Fleans.Plugins.CamundaExternalTask.Tests` | REST wire-format tests (SQLite, plus PostgreSQL with `FLEANS_PG_TESTS=1`) and handler tests against a fake engine. |
 | `docs/camunda-external-task/manual-test-plan/` | End-to-end check with a real Camunda client against a real engine. |
 
-**Compatibility:** plugin 0.12.0 requires **Fleans 0.12.0 or later** (built on `Fleans.ExternalTasks.Sdk` 0.12.0, with no Orleans dependency). 0.11.0 moved the plugins to gRPC workers: it needs the engine's deferred tasks, `scheme:*` wildcards and active-activity read. 0.10.0 moved input/output mapping into the engine. 0.8.0 added the process instance business id, returned as `businessKey`. Run it against an engine built from the same Fleans version or newer.
+**Compatibility:** plugin 0.13.0 requires **Fleans 0.13.0 or later** (built on `Fleans.ExternalTasks.Sdk` 0.13.0, with no Orleans dependency). 0.11.0 moved the plugins to gRPC workers: it needs the engine's deferred tasks, `scheme:*` wildcards and active-activity read. 0.10.0 moved input/output mapping into the engine. 0.8.0 added the process instance business id, returned as `businessKey`. Run it against an engine built from the same Fleans version or newer.
 `FleansVersion` in `Directory.Build.props` pins the `Fleans.ExternalTasks.Sdk` package the plugin compiles against.
 
 ## 1. Adapt the BPMN
