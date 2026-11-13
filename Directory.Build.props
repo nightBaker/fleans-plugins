@@ -6,12 +6,13 @@
          0.10.0: input/output mappings are evaluated by the engine (nightBaker/fleans#949).
          0.11.0: gRPC workers instead of a plugin silo (nightBaker/fleans#1013).
          0.12.0: built on Fleans.ExternalTasks.Sdk 0.12.0 (plugin versions, nightBaker/fleans#1053).
+         0.13.0: built on Fleans.ExternalTasks.Sdk 0.13.0.
          Tracks the Fleans engine release the plugins are built against. -->
-    <VersionPrefix>0.12.0</VersionPrefix>
+    <VersionPrefix>0.13.0</VersionPrefix>
     <!-- The Fleans.ExternalTasks.Sdk package the plugins compile against. 0.11.0 is the first with
          ExternalTaskHandler.Deferred and scheme wildcards (nightBaker/fleans#1013), and the first
          engine that runs custom tasks on gRPC workers only. -->
-    <FleansVersion>0.12.0</FleansVersion>
+    <FleansVersion>0.13.0</FleansVersion>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
