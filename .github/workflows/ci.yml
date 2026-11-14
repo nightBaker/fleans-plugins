@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '11.0.x'
       # Restores Fleans.ExternalTasks.Sdk $(FleansVersion) from nuget.org — red until that Fleans release is published.
       - run: dotnet restore
       - run: dotnet build --no-restore -c Release
