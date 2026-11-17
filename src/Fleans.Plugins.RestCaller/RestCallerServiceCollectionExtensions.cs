@@ -23,6 +23,12 @@ public static class RestCallerServiceCollectionExtensions
     /// </summary>
     public const long DefaultMaxResponseContentBufferSize = 8L * 1024 * 1024;
 
+    // The package version (VersionPrefix in Directory.Build.props), so processes can pin it. Every
+    // release bumps it, which also covers the engine's rule that a parameter-schema change needs a
+    // new version.
+    private static readonly string PluginVersion =
+        typeof(RestCallerHandler).Assembly.GetName().Version!.ToString(3);
+
     public static IServiceCollection AddRestCallerPlugin(this IServiceCollection services)
     {
         // Typed-client; HttpClient.Timeout = InfiniteTimeSpan because per-call timeout is
@@ -40,7 +46,9 @@ public static class RestCallerServiceCollectionExtensions
         services.AddExternalTaskHandler<RestCallerHandler>(
             taskType: "rest-call",
             displayName: "REST Caller",
-            parameterSchema: RestCallerSchema.Default);
+            parameterSchema: RestCallerSchema.Default,
+            variables: ExternalTaskVariables.None,
+            version: PluginVersion);
 
         return services;
     }

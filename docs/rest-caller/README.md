@@ -19,6 +19,9 @@ to your own worker with one line.
 Fleans version or newer. 0.11.0 is the first version that runs as a gRPC worker; older engines
 need the 0.10.x plugin host.
 
+The worker registers `rest-call` with the package version (for example `0.14.0`), so a process can
+pin it. It receives no workflow variables: the task's input mappings are all it reads.
+
 ## Run the worker
 
 The repo's worker image `ghcr.io/nightbaker/fleans-plugins` includes this plugin; see
@@ -49,6 +52,13 @@ for the worker process, or start from
 | `timeoutSec` | `Integer` | yes | `30` | Whole seconds; clamped to `[1, 300]`. Timeout fails the activity with `code="504"` |
 | `idempotencyKeyHeader` | `String` | no | `null` | When set, plugin sends `<header>: <activityInstanceId-guid>` so server-side dedupe is keyed on the activity instance id (mitigates redelivery after a worker failure) |
 | `maxResponseBytes` | `Integer` | no | `null` | Per-task cap on the buffered response body. Null or empty uses the worker ceiling (8 MiB by default). Can only **lower** the ceiling — a larger value is clamped to it. Must be ≥ 1. A success response whose body is over the cap fails the activity with `code="502"`; a non-success response keeps its own status code |
+
+**Required means mapped.** `method` and `timeoutSec` have defaults, but the defaults only prefill
+the editor: every required parameter needs a `<fleans:input>`. A hand-written BPMN that leaves one
+out is rejected at deploy. Every input is checked against its type before dispatch, so `Integer`
+parameters (`timeoutSec`, `maxResponseBytes`, `successCodes` entries) take whole numbers only —
+`1.5` or `true` fails the task with `PLUGIN_INPUTS_INVALID` — and an input that is not a parameter
+above is rejected the same way.
 
 ## Failure semantics
 

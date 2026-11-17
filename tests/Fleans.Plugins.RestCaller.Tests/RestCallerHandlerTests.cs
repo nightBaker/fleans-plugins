@@ -270,6 +270,53 @@ public class RestCallerHandlerTests
         Assert.AreEqual("400", ex.Code);
     }
 
+    [TestMethod]
+    [DataRow(1.5)]
+    [DataRow(true)]
+    [DataRow("10s")]
+    public async Task TimeoutNotAWholeNumber_FailsWith400(object timeoutSec)
+    {
+        var handler = MakeHandler(new HttpClientHandler());
+        var inputs = Inputs("http://example.com/");
+        inputs["timeoutSec"] = timeoutSec;
+
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
+            handler.ExecuteForTest(inputs, new ExpandoObject(), Ctx()));
+
+        Assert.AreEqual("400", ex.Code);
+        StringAssert.Contains(ex.Message, "timeoutSec");
+    }
+
+    [TestMethod]
+    public async Task SuccessCodes_FractionalEntry_FailsWith400()
+    {
+        var handler = MakeHandler(new HttpClientHandler());
+        var inputs = Inputs("http://example.com/");
+        inputs["successCodes"] = new List<object?> { 200L, 201.5 };
+
+        var ex = await Assert.ThrowsExactlyAsync<ExternalTaskFailedException>(() =>
+            handler.ExecuteForTest(inputs, new ExpandoObject(), Ctx()));
+
+        Assert.AreEqual("400", ex.Code);
+        StringAssert.Contains(ex.Message, "successCodes");
+    }
+
+    [TestMethod]
+    [DataRow(10L)]
+    [DataRow(10.0)]
+    [DataRow(" 10 ")]
+    public async Task MaxResponseBytes_WholeNumberForms_AreAccepted(object maxResponseBytes)
+    {
+        var handler = MakeCappedHandler(new FixedBodyHandler(System.Text.Encoding.UTF8.GetBytes("hello")));
+        var inputs = Inputs("http://example.com/");
+        inputs["maxResponseBytes"] = maxResponseBytes;
+
+        var result = await handler.ExecuteForTest(inputs, new ExpandoObject(), Ctx());
+
+        var response = (IDictionary<string, object?>)result["__response"]!;
+        Assert.AreEqual("hello", response["body"]);
+    }
+
     // --- Header validation (CRLF + RFC 7230 token grammar) ---
 
     [TestMethod]
