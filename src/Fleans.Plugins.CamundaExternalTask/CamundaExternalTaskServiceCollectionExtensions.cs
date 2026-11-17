@@ -32,7 +32,11 @@ public static class CamundaExternalTaskServiceCollectionExtensions
         services.AddDbContextFactory<ExternalTaskDbContext>(configureDb);
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<ExternalTaskSignal>();
-        services.AddExternalTaskHandler<CamundaExternalTaskHandler>(CamundaExternalTaskConventions.TaskTypeWildcard);
+        // No variables: Camunda workers pick theirs in fetchAndLock and read them over the Fleans REST API.
+        // No version: a wildcard handler has no contract to pin.
+        services.AddExternalTaskHandler<CamundaExternalTaskHandler>(
+            CamundaExternalTaskConventions.TaskTypeWildcard,
+            variables: ExternalTaskVariables.None);
         services.AddHttpClient(HttpFleansEngineClient.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
         services.TryAddSingleton<IFleansEngineClient, HttpFleansEngineClient>();
         services.TryAddSingleton<ExternalTaskService>();

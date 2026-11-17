@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Dynamic;
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
 using Fleans.ExternalTasks.Sdk;
@@ -302,12 +303,9 @@ public sealed partial class RestCallerHandler : ExternalTaskHandler
     {
         if (!inputs.TryGetValue(key, out var v) || v is null) return null;
         if (v is string str && string.IsNullOrWhiteSpace(str)) return null;  // blank editor field = absent
-        try { return Convert.ToInt32(v); }
-        catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
-        {
-            throw new ExternalTaskFailedException("400",
+        return ToWholeNumber(v)
+            ?? throw new ExternalTaskFailedException("400",
                 $"input '{key}' must be an integer; got {v} ({v.GetType().Name})");
-        }
     }
 
     private static IReadOnlyList<int>? ReadIntegerList(IDictionary<string, object?> inputs, string key)
@@ -319,17 +317,37 @@ public sealed partial class RestCallerHandler : ExternalTaskHandler
             foreach (var item in enumerable)
             {
                 if (item is null) continue;
-                try { result.Add(Convert.ToInt32(item)); }
-                catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
-                {
-                    throw new ExternalTaskFailedException("400",
-                        $"input '{key}' must be a list of integers; got entry {item} ({item.GetType().Name})");
-                }
+                result.Add(ToWholeNumber(item)
+                    ?? throw new ExternalTaskFailedException("400",
+                        $"input '{key}' must be a list of integers; got entry {item} ({item.GetType().Name})"));
             }
             return result;
         }
         throw new ExternalTaskFailedException("400",
             $"input '{key}' must be a list of integers; got {v.GetType().Name}");
+    }
+
+    // Matches the engine's whole-number rule (it rejects 1.5 and true with PLUGIN_INPUTS_INVALID):
+    // an integer, a number with no fractional part, or integer text. Null when it is none of those
+    // or does not fit an int.
+    private static int? ToWholeNumber(object v)
+    {
+        switch (v)
+        {
+            case bool:
+                return null;
+            case string text:
+                return int.TryParse(text.Trim(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var parsed)
+                    ? parsed : null;
+            case float or double or decimal:
+                var d = Convert.ToDecimal(v, CultureInfo.InvariantCulture);
+                return d == decimal.Truncate(d) && d is >= int.MinValue and <= int.MaxValue ? (int)d : null;
+            case sbyte or byte or short or ushort or int or uint or long or ulong:
+                try { return Convert.ToInt32(v, CultureInfo.InvariantCulture); }
+                catch (OverflowException) { return null; }
+            default:
+                return null;
+        }
     }
 
     private static Dictionary<string, string> ReadMap(IDictionary<string, object?> inputs, string key)
