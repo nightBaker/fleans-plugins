@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Fleans.Plugins.CamundaExternalTask\Fleans.Plugins.CamundaExternalTask.csproj" />
+    <ProjectReference Include="..\Fleans.Plugins.JavaScript\Fleans.Plugins.JavaScript.csproj" />
     <ProjectReference Include="..\Fleans.Plugins.RestCaller\Fleans.Plugins.RestCaller.csproj" />
   </ItemGroup>
 
