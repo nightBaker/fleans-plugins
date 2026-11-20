@@ -9,6 +9,7 @@ with no Orleans dependency. The engine itself bundles no plugins.
 |---|---|---|---|---|
 | REST Caller | `<serviceTask type="rest-call">` | `Fleans.Plugins.RestCaller` | `builder.Services.AddRestCallerPlugin();` | [docs/rest-caller](docs/rest-caller/README.md) |
 | Camunda 7 External Task | `<serviceTask type="camunda:<topic>">` | `Fleans.Plugins.CamundaExternalTask` | `builder.AddCamundaExternalTaskPlugin();` | [docs/camunda-external-task](docs/camunda-external-task/README.md) |
+| JavaScript script tasks | `<scriptTask scriptFormat="javascript">` | `Fleans.Plugins.JavaScript` | `builder.Services.AddJavaScriptPlugin();` | [docs/javascript](docs/javascript/README.md) |
 
 ## Run the worker
 
@@ -48,13 +49,14 @@ The Helm chart runs this image with `plugins.enabled=true`.
 | `Fleans__ExternalTaskWorker__AccessToken` | — | Bearer token, for an API with authentication on. Also used for the Camunda plugin's REST calls. |
 | `Fleans__ExternalTaskWorker__UseGrpcWeb` | `true` | gRPC-Web over HTTP/1.1, which works against any API endpoint. `false` for HTTP/2 endpoints; the Camunda plugin's REST calls then use HTTP/2 too. |
 | `Fleans__ExternalTaskWorker__MaxConcurrentTasks` | `32` | Tasks run at the same time in this process. |
+| `Plugins__Enabled` | *all* | Comma-separated plugins to run: `rest-caller`, `camunda-external-task`, `javascript`. Unset runs every plugin; an unknown name fails startup. Use it to run one image as separate deployments — for example JavaScript on its own, hardened (see [docs/javascript](docs/javascript/README.md#run-the-worker)). |
 
 Delivery is at-least-once: a task can run again after a dropped connection or a timeout, which is
 why a plugin keys side effects by the activity instance id. A task whose type has no connected
 worker waits for one within the engine's stream delivery window. Each plugin's own settings are in
-its guide; the Camunda plugin's database connection string is required, so the worker needs it even
-if you only use the REST Caller (its database is created at startup and can live on the engine's
-PostgreSQL server).
+its guide; the Camunda plugin's database connection string is required whenever that plugin runs
+— even if you only use the REST Caller — unless `Plugins__Enabled` leaves it out (its database is
+created at startup and can live on the engine's PostgreSQL server).
 
 To write your own plugin, see
 [Writing custom tasks](https://nightbaker.github.io/fleans/guides/writing-custom-tasks/),
