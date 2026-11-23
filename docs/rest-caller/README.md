@@ -15,11 +15,11 @@ The Fleans engine images do not bundle this plugin. Run it in this repo's worker
 to your own worker with one line.
 
 **Compatibility:** built against `Fleans.ExternalTasks.Sdk` `$(FleansVersion)` from
-`Directory.Build.props` (0.14.0 at the time of writing). Run it against an engine of the same
+`Directory.Build.props` (0.15.0 at the time of writing). Run it against an engine of the same
 Fleans version or newer. 0.11.0 is the first version that runs as a gRPC worker; older engines
 need the 0.10.x plugin host.
 
-The worker registers `rest-call` with the package version (for example `0.14.0`), so a process can
+The worker registers `rest-call` with the package version (for example `0.15.0`), so a process can
 pin it. It receives no workflow variables: the task's input mappings are all it reads.
 
 ## Run the worker
