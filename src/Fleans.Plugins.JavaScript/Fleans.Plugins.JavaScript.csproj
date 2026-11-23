@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>Fleans.Plugins.JavaScript</PackageId>
+    <Description>Fleans JavaScript plugin — runs &lt;scriptTask scriptFormat="javascript"&gt; out of the engine, on Jint with no .NET access.</Description>
+    <PackageTags>fleans;workflow;bpmn;plugin;javascript;script;jint</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Fleans.Plugins.JavaScript.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Fleans.ExternalTasks.Sdk" Version="$(FleansVersion)" />
+    <PackageReference Include="Jint" Version="4.17.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>
