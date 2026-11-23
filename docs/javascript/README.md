@@ -13,8 +13,8 @@ cannot hurt the engine's silos, and the worker scales and upgrades on its own.
 | `tests/Fleans.Plugins.JavaScript.Tests` | Engine and handler tests. |
 
 **Compatibility:** built against `Fleans.ExternalTasks.Sdk` `$(FleansVersion)` from
-`Directory.Build.props`. It needs an engine that routes script formats to workers — the first
-Fleans release after 0.14.0. Older engines reject `scriptFormat="javascript"` when the process is deployed.
+`Directory.Build.props`. It needs an engine that routes script formats to workers — Fleans 0.15.0
+or later. Older engines reject `scriptFormat="javascript"` when the process is deployed.
 
 ## What a script sees
 
