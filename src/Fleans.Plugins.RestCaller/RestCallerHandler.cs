@@ -17,6 +17,15 @@ namespace Fleans.Plugins.RestCaller;
 /// </summary>
 public sealed partial class RestCallerHandler : ExternalTaskHandler
 {
+    internal const string DefaultIdempotencyKeyHeader = "Idempotency-Key";
+
+    private static string? ResolveIdempotencyKeyHeader(string? configured, string method)
+    {
+        if (string.Equals(configured?.Trim(), "none", StringComparison.OrdinalIgnoreCase)) return null;
+        if (!string.IsNullOrWhiteSpace(configured)) return configured;
+        return method is "GET" or "HEAD" or "OPTIONS" ? null : DefaultIdempotencyKeyHeader;
+    }
+
     private static readonly HashSet<string> AllowedMethods = new(StringComparer.OrdinalIgnoreCase)
     {
         "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"
@@ -79,8 +88,12 @@ public sealed partial class RestCallerHandler : ExternalTaskHandler
             throw new ExternalTaskFailedException("400", $"maxResponseBytes must be >= 1; got {requestedMax}");
         var maxResponseBytes = requestedMax is { } m ? Math.Min(m, ceiling) : ceiling;
 
-        // Idempotency-key opt-in. Plugin's value wins on collision with user-supplied headers.
-        if (!string.IsNullOrWhiteSpace(idempotencyKeyHeader))
+        // Delivery is at-least-once, so a request that changes something carries an idempotency key
+        // by default (fleans#752): `Idempotency-Key`, unless the task names another header or
+        // `none`. Reads (GET, HEAD, OPTIONS) send none unless asked. The plugin's value wins on
+        // collision with user-supplied headers.
+        idempotencyKeyHeader = ResolveIdempotencyKeyHeader(idempotencyKeyHeader, method);
+        if (idempotencyKeyHeader is not null)
         {
             headers[idempotencyKeyHeader] = context.ActivityInstanceId.ToString();
             LogIdempotencyKeySet(idempotencyKeyHeader, context.ActivityInstanceId);

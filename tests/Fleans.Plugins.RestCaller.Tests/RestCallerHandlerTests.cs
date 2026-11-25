@@ -160,6 +160,65 @@ public class RestCallerHandlerTests
         Assert.AreEqual(activityInstanceId.ToString(), mock.Requests.Single().Headers["X-Request-Id"]);
     }
 
+    [TestMethod]
+    public async Task IdempotencyKey_PostWithoutSetting_SendsDefaultHeader()
+    {
+        // Arrange
+        await using var mock = await MockServer.StartAsync(async ctx =>
+        {
+            ctx.Response.StatusCode = 200;
+            await ctx.Response.WriteAsync("");
+        });
+        var activityInstanceId = Guid.NewGuid();
+        var handler = MakeHandler(new HttpClientHandler());
+
+        // Act
+        await handler.ExecuteForTest(
+            Inputs($"{mock.BaseUrl}/api", method: "POST", body: "{}"),
+            new ExpandoObject(), Ctx(activityInstanceId));
+
+        // Assert
+        Assert.AreEqual(activityInstanceId.ToString(), mock.Requests.Single().Headers["Idempotency-Key"]);
+    }
+
+    [TestMethod]
+    public async Task IdempotencyKey_GetWithoutSetting_SendsNoHeader()
+    {
+        // Arrange
+        await using var mock = await MockServer.StartAsync(async ctx =>
+        {
+            ctx.Response.StatusCode = 200;
+            await ctx.Response.WriteAsync("");
+        });
+        var handler = MakeHandler(new HttpClientHandler());
+
+        // Act
+        await handler.ExecuteForTest(Inputs($"{mock.BaseUrl}/api"), new ExpandoObject(), Ctx(Guid.NewGuid()));
+
+        // Assert
+        Assert.IsFalse(mock.Requests.Single().Headers.ContainsKey("Idempotency-Key"));
+    }
+
+    [TestMethod]
+    public async Task IdempotencyKey_None_SendsNoHeaderOnPost()
+    {
+        // Arrange
+        await using var mock = await MockServer.StartAsync(async ctx =>
+        {
+            ctx.Response.StatusCode = 200;
+            await ctx.Response.WriteAsync("");
+        });
+        var handler = MakeHandler(new HttpClientHandler());
+
+        // Act
+        await handler.ExecuteForTest(
+            Inputs($"{mock.BaseUrl}/api", method: "POST", body: "{}", idempotencyKeyHeader: "none"),
+            new ExpandoObject(), Ctx(Guid.NewGuid()));
+
+        // Assert
+        Assert.IsFalse(mock.Requests.Single().Headers.ContainsKey("Idempotency-Key"));
+    }
+
     // --- successCodes ---
 
     [TestMethod]

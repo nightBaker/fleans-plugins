@@ -66,7 +66,7 @@ public static class RestCallerSchema
             DisplayName: "Idempotency Key Header",
             Type: ExternalTaskParameterType.String,
             Required: false,
-            Description: "When set, plugin sends <header>: <activityInstanceId-guid> so server-side dedupe is keyed on the activity instance id (mitigates redelivery after a worker failure).",
+            Description: "Header carrying <activityInstanceId-guid> so the upstream can dedupe redelivered calls. Defaults to Idempotency-Key for methods other than GET/HEAD/OPTIONS; set a header name to use another one (also on reads), or none to send nothing.",
             DefaultValue: null),
 
         new ExternalTaskParameter(
