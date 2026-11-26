@@ -50,7 +50,7 @@ for the worker process, or start from
 | `body` | `MultilineString` | no | `null` | Sent verbatim. If non-empty and no `Content-Type` header is supplied, defaults to `application/json` |
 | `successCodes` | `List<Integer>` | no | `null` | When null/empty, defaults to `200..299`. Pass an explicit list (e.g. `[200, 201, 404]`) when you want non-2xx codes treated as success. **v1 only sources from a workflow variable.** |
 | `timeoutSec` | `Integer` | yes | `30` | Whole seconds; clamped to `[1, 300]`. Timeout fails the activity with `code="504"` |
-| `idempotencyKeyHeader` | `String` | no | `Idempotency-Key` on POST/PUT/PATCH/DELETE, none on GET/HEAD/OPTIONS | Header that carries `<activityInstanceId-guid>`, so server-side dedupe is keyed on the activity instance id (mitigates redelivery after a worker failure). Name another header to use it on any method; `none` sends nothing |
+| `idempotencyKeyHeader` | `String` | no | `Idempotency-Key` on POST/PUT/PATCH/DELETE, none on GET/HEAD/OPTIONS | Header that carries `<activityInstanceId-guid>`, so server-side dedupe is keyed on the activity instance id (mitigates redelivery after a worker failure). Name another header to use it on any method; `none` sends nothing. The default keeps an `Idempotency-Key` already in `headers` |
 | `maxResponseBytes` | `Integer` | no | `null` | Per-task cap on the buffered response body. Null or empty uses the worker ceiling (8 MiB by default). Can only **lower** the ceiling — a larger value is clamped to it. Must be ≥ 1. A success response whose body is over the cap fails the activity with `code="502"`; a non-success response keeps its own status code |
 
 **Required means mapped.** `method` and `timeoutSec` have defaults, but the defaults only prefill
@@ -119,8 +119,15 @@ does not evaluate fails the activity with code `500`, naming the expression and 
 **Delivery is at-least-once.** A task can run again after a dropped connection or a timeout, so a
 non-idempotent call can reach the upstream twice. Every request other than GET, HEAD and OPTIONS
 therefore carries `Idempotency-Key: <activityInstanceId>` by default, the same value on every
-retry, so an upstream that dedupes on it sees the call once. Set `idempotencyKeyHeader` to rename
-the header, or to `none` to send nothing.
+retry, so an upstream that dedupes on it does the work once. Set `idempotencyKeyHeader` to rename
+the header, or to `none` to send nothing. An `Idempotency-Key` the workflow already sends in
+`headers` is kept; a header named in `idempotencyKeyHeader` always carries the activity instance id.
+
+A retry can overlap the first request when the worker died while the upstream was still
+processing it. Upstreams that follow the IETF Idempotency-Key draft (or Stripe) answer the
+overlapping request with `409`, which fails the activity with code `409` even though the original
+call succeeds. Route on `errorCode="409"` with an error boundary, or add `409` to `successCodes`
+if the upstream's 409 always means "already in progress".
 
 **Declare outputs.** Without any `<fleans:output>`, the whole result reaches the workflow scope:
 a `__response` variable with the full body and every response header (`Set-Cookie` included).

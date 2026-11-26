@@ -161,7 +161,16 @@ public class RestCallerHandlerTests
     }
 
     [TestMethod]
-    public async Task IdempotencyKey_PostWithoutSetting_SendsDefaultHeader()
+    [DataRow("POST", true)]
+    [DataRow("PUT", true)]
+    [DataRow("PATCH", true)]
+    [DataRow("DELETE", true)]
+    [DataRow("post", true)]
+    [DataRow("GET", false)]
+    [DataRow("HEAD", false)]
+    [DataRow("OPTIONS", false)]
+    public async Task IdempotencyKey_WithoutSetting_SendsDefaultHeaderOnlyOnMethodsThatChangeSomething(
+        string method, bool expected)
     {
         // Arrange
         await using var mock = await MockServer.StartAsync(async ctx =>
@@ -174,49 +183,77 @@ public class RestCallerHandlerTests
 
         // Act
         await handler.ExecuteForTest(
-            Inputs($"{mock.BaseUrl}/api", method: "POST", body: "{}"),
-            new ExpandoObject(), Ctx(activityInstanceId));
+            Inputs($"{mock.BaseUrl}/api", method: method), new ExpandoObject(), Ctx(activityInstanceId));
 
         // Assert
-        Assert.AreEqual(activityInstanceId.ToString(), mock.Requests.Single().Headers["Idempotency-Key"]);
+        var headers = mock.Requests.Single().Headers;
+        if (expected)
+            Assert.AreEqual(activityInstanceId.ToString(), headers["Idempotency-Key"]);
+        else
+            Assert.IsFalse(headers.ContainsKey("Idempotency-Key"));
     }
 
     [TestMethod]
-    public async Task IdempotencyKey_GetWithoutSetting_SendsNoHeader()
+    public async Task IdempotencyKey_Default_KeepsAKeyTheWorkflowSendsInHeaders()
     {
-        // Arrange
+        // Arrange — no idempotencyKeyHeader input; the workflow sends its own key (any casing).
         await using var mock = await MockServer.StartAsync(async ctx =>
         {
             ctx.Response.StatusCode = 200;
             await ctx.Response.WriteAsync("");
         });
-        var handler = MakeHandler(new HttpClientHandler());
-
-        // Act
-        await handler.ExecuteForTest(Inputs($"{mock.BaseUrl}/api"), new ExpandoObject(), Ctx(Guid.NewGuid()));
-
-        // Assert
-        Assert.IsFalse(mock.Requests.Single().Headers.ContainsKey("Idempotency-Key"));
-    }
-
-    [TestMethod]
-    public async Task IdempotencyKey_None_SendsNoHeaderOnPost()
-    {
-        // Arrange
-        await using var mock = await MockServer.StartAsync(async ctx =>
-        {
-            ctx.Response.StatusCode = 200;
-            await ctx.Response.WriteAsync("");
-        });
+        var headers = new Dictionary<string, object?> { ["idempotency-key"] = "order-123" };
         var handler = MakeHandler(new HttpClientHandler());
 
         // Act
         await handler.ExecuteForTest(
-            Inputs($"{mock.BaseUrl}/api", method: "POST", body: "{}", idempotencyKeyHeader: "none"),
+            Inputs($"{mock.BaseUrl}/api", method: "POST", body: "{}", headers: headers),
             new ExpandoObject(), Ctx(Guid.NewGuid()));
 
         // Assert
-        Assert.IsFalse(mock.Requests.Single().Headers.ContainsKey("Idempotency-Key"));
+        Assert.AreEqual("order-123", mock.Requests.Single().Headers["Idempotency-Key"]);
+    }
+
+    [TestMethod]
+    public async Task IdempotencyKey_None_SendsNoKeyOnPost()
+    {
+        // Arrange
+        await using var mock = await MockServer.StartAsync(async ctx =>
+        {
+            ctx.Response.StatusCode = 200;
+            await ctx.Response.WriteAsync("");
+        });
+        var activityInstanceId = Guid.NewGuid();
+        var handler = MakeHandler(new HttpClientHandler());
+
+        // Act
+        await handler.ExecuteForTest(
+            Inputs($"{mock.BaseUrl}/api", method: "POST", body: "{}", idempotencyKeyHeader: " none "),
+            new ExpandoObject(), Ctx(activityInstanceId));
+
+        // Assert — no header at all carries the key, not even one named "none".
+        CollectionAssert.DoesNotContain(mock.Requests.Single().Headers.Values.ToList(), activityInstanceId.ToString());
+    }
+
+    [TestMethod]
+    public async Task IdempotencyKey_HeaderNameIsTrimmed()
+    {
+        // Arrange
+        await using var mock = await MockServer.StartAsync(async ctx =>
+        {
+            ctx.Response.StatusCode = 200;
+            await ctx.Response.WriteAsync("");
+        });
+        var activityInstanceId = Guid.NewGuid();
+        var handler = MakeHandler(new HttpClientHandler());
+
+        // Act
+        await handler.ExecuteForTest(
+            Inputs($"{mock.BaseUrl}/api", method: "POST", body: "{}", idempotencyKeyHeader: "X-Request-Id "),
+            new ExpandoObject(), Ctx(activityInstanceId));
+
+        // Assert
+        Assert.AreEqual(activityInstanceId.ToString(), mock.Requests.Single().Headers["X-Request-Id"]);
     }
 
     // --- successCodes ---
