@@ -17,6 +17,17 @@ namespace Fleans.Plugins.RestCaller;
 /// </summary>
 public sealed partial class RestCallerHandler : ExternalTaskHandler
 {
+    internal const string DefaultIdempotencyKeyHeader = "Idempotency-Key";
+
+    // The header to carry the idempotency key, or null for none. Explicit = the task named it.
+    private static (string? Name, bool Explicit) ResolveIdempotencyKeyHeader(string? configured, string method)
+    {
+        configured = configured?.Trim();
+        if (string.Equals(configured, "none", StringComparison.OrdinalIgnoreCase)) return (null, true);
+        if (!string.IsNullOrEmpty(configured)) return (configured, true);
+        return (method is "GET" or "HEAD" or "OPTIONS" ? null : DefaultIdempotencyKeyHeader, false);
+    }
+
     private static readonly HashSet<string> AllowedMethods = new(StringComparer.OrdinalIgnoreCase)
     {
         "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"
@@ -79,11 +90,16 @@ public sealed partial class RestCallerHandler : ExternalTaskHandler
             throw new ExternalTaskFailedException("400", $"maxResponseBytes must be >= 1; got {requestedMax}");
         var maxResponseBytes = requestedMax is { } m ? Math.Min(m, ceiling) : ceiling;
 
-        // Idempotency-key opt-in. Plugin's value wins on collision with user-supplied headers.
-        if (!string.IsNullOrWhiteSpace(idempotencyKeyHeader))
+        // Delivery is at-least-once, so a request that changes something carries an idempotency key
+        // by default (fleans#752): `Idempotency-Key`, unless the task names another header or
+        // `none`. Reads (GET, HEAD, OPTIONS) send none unless asked. A header the task names
+        // explicitly wins over a user-supplied one of the same name; the default never replaces a
+        // key the workflow already sends in `headers`.
+        var (keyHeader, keyHeaderExplicit) = ResolveIdempotencyKeyHeader(idempotencyKeyHeader, method);
+        if (keyHeader is not null && (keyHeaderExplicit || !headers.ContainsKey(keyHeader)))
         {
-            headers[idempotencyKeyHeader] = context.ActivityInstanceId.ToString();
-            LogIdempotencyKeySet(idempotencyKeyHeader, context.ActivityInstanceId);
+            headers[keyHeader] = context.ActivityInstanceId.ToString();
+            LogIdempotencyKeySet(keyHeader, context.ActivityInstanceId);
         }
 
         using var request = new HttpRequestMessage(new HttpMethod(method), uri);
